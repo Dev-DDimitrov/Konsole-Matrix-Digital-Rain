@@ -53,11 +53,15 @@ def guide_output(*arguments):
 class FinalInteractionTests(unittest.TestCase):
     def test_speed_is_96_in_defaults_config_and_resolution(self):
         self.assertEqual(config.DEFAULTS["speed"], 96)
-        with patch.object(config, "CONFIG_PATH", SOURCE_ROOT / "config/config.toml.example"):
-            values, _ = config.load_config()
-            self.assertEqual(values["speed"], 96)
-            self.assertEqual(config.resolve(SimpleNamespace(preset=None))["speed"], 96)
-            self.assertEqual(config.resolve(SimpleNamespace(preset=None, speed=84))["speed"], 84)
+        example_path = SOURCE_ROOT / "config/config.toml.example"
+        values, _ = config.load_config(example_path)
+        with tempfile.TemporaryDirectory(prefix="matrix-test-presets-") as preset_dir:
+            with patch.object(config, "load_config", return_value=(values, None)), patch.object(
+                config, "PRESET_DIR", Path(preset_dir)
+            ):
+                self.assertEqual(values["speed"], 96)
+                self.assertEqual(config.resolve(SimpleNamespace(preset=None))["speed"], 96)
+                self.assertEqual(config.resolve(SimpleNamespace(preset=None, speed=84))["speed"], 84)
         self.assertNotIn(
             "speed = 97",
             (SOURCE_ROOT / "config/config.toml.example").read_text(encoding="utf-8"),
