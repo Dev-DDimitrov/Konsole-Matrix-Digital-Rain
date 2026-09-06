@@ -1,7 +1,7 @@
 # Changelog
 
 This changelog follows a Keep-a-Changelog-inspired structure. The project has
-not yet made a public release.
+an established public repository, but has not yet made a tagged public release.
 
 ## [Unreleased]
 
@@ -21,5 +21,5 @@ Planned initial public release containing:
 - read-only diagnostics and portable regression/staging tests;
 - Fedora/KDE architecture, controls, security, and provenance documentation.
 
-This section is a release target, not a claim that `v0.9.0` has already been
-published or tagged.
+This section describes the imminent initial public release target. `v0.9.0`
+has not yet been tagged, dated, or published as a GitHub Release.

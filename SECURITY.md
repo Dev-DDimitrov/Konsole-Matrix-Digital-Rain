@@ -2,14 +2,15 @@
 
 ## Status
 
-The initial public release target is **v0.9.0**. Until the first public
-repository and release process exist, no security contact address or private
-reporting endpoint is configured.
+The repository is public. The initial public release target is **v0.9.0**,
+but that version has not yet been tagged or released. No dedicated security
+contact address or private reporting endpoint is currently configured.
 
-When the public repository is created, private GitHub vulnerability reporting
-or another private reporting mechanism should be enabled before public release
-announcements. Do not place exploitable vulnerability details in a public issue
-or discussion.
+When a private GitHub vulnerability-reporting mechanism or another private
+reporting channel is enabled, use it for exploitable security issues. Until
+then, do not place exploitable vulnerability details in a public issue or
+discussion. Non-sensitive security questions may use ordinary public
+repository channels when appropriate.
 
 ## What to report
 

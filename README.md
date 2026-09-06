@@ -1,12 +1,14 @@
 # Konsole Matrix Digital Rain
 
+[![CI](https://github.com/Dev-DDimitrov/Konsole-Matrix-Digital-Rain/actions/workflows/ci.yml/badge.svg)](https://github.com/Dev-DDimitrov/Konsole-Matrix-Digital-Rain/actions/workflows/ci.yml)
+
 Konsole Matrix Digital Rain is an independent Fedora/KDE utility for a
 polished digital-rain experience in Konsole, with configurable palettes,
 synchronized multi-monitor windows, and an optional idle-aware saver
 controller.
 
-Initial public release target: **v0.9.0**. The project is prepared for public
-review; it has not yet been tagged or published as a Git repository.
+The repository is public. The initial public release target is **v0.9.0**;
+that version has not yet been tagged or released.
 
 Konsole Matrix Digital Rain is an independent open-source project and is not
 affiliated with, sponsored by, or endorsed by the creators or rights holders
@@ -56,9 +58,9 @@ or a running service.
 
 ## Installation
 
-When the public repository exists, inspect the source first:
+Inspect the public source repository first:
 
-    git clone <repository-url>
+    git clone https://github.com/Dev-DDimitrov/Konsole-Matrix-Digital-Rain.git
     cd Konsole-Matrix-Digital-Rain
     scripts/install.sh --dry-run
     scripts/install.sh
