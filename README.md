@@ -7,8 +7,8 @@ polished digital-rain experience in Konsole, with configurable palettes,
 synchronized multi-monitor windows, and an optional idle-aware saver
 controller.
 
-The repository is public. The initial public release target is **v0.9.0**;
-that version has not yet been tagged or released.
+The repository is public. The initial public release is **v0.9.0**, and this
+source snapshot represents that release.
 
 Konsole Matrix Digital Rain is an independent open-source project and is not
 affiliated with, sponsored by, or endorsed by the creators or rights holders

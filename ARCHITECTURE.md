@@ -1,7 +1,7 @@
 # Architecture
 
-This document describes the repository-relative design of the public release
-candidate. See [INVENTORY.md](INVENTORY.md) for the source manifest and
+This document describes the repository-relative design of the v0.9.0 public
+release. See [INVENTORY.md](INVENTORY.md) for the source manifest and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for provenance.
 
 ## Runtime layout

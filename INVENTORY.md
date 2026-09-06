@@ -4,7 +4,7 @@ This document describes the intended public source tree. It is repository-
 relative and deliberately does not record installed paths, personal
 configuration, workstation history, or private audit snapshots.
 
-Initial public release target: **v0.9.0**.
+Initial public release: **v0.9.0**.
 
 ## Source layout
 

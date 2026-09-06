@@ -2,9 +2,9 @@
 
 ## Status
 
-The repository is public. The initial public release target is **v0.9.0**,
-but that version has not yet been tagged or released. No dedicated security
-contact address or private reporting endpoint is currently configured.
+The repository is public and **v0.9.0** is the initial public release. No
+dedicated security contact address or private reporting endpoint is currently
+configured.
 
 When a private GitHub vulnerability-reporting mechanism or another private
 reporting channel is enabled, use it for exploitable security issues. Until

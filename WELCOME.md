@@ -25,6 +25,6 @@ The renderer contains substantially modified and derived work based on
 project uses [GPL-3.0-or-later](LICENSE); detailed provenance is documented in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-The intended initial public release target is **v0.9.0**. See
+The initial public release is **v0.9.0**. See
 [README.md](README.md) for installation, [GUIDE.md](GUIDE.md) for operation,
 and [CONTRIBUTING.md](CONTRIBUTING.md) for development expectations.
