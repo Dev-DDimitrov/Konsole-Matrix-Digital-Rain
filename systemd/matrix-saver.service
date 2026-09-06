@@ -1,0 +1,20 @@
+[Unit]
+Description=Konsole Matrix idle screensaver controller
+Documentation=man:systemd.service
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=XDG_SESSION_TYPE=wayland
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/matrix-saver
+Restart=on-failure
+RestartSec=10s
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=graphical-session.target

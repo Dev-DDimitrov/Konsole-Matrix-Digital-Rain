@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Part of Konsole Matrix Digital Rain.
+# User-installed entry point for the local cinematic renderer.
+set -Eeuo pipefail
+exec "$(dirname "$0")/matrix_renderer.py" "$@"

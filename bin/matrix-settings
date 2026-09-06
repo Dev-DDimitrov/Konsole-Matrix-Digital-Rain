@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Part of Konsole Matrix Digital Rain.
+set -Eeuo pipefail
+exec "$(dirname "$0")/matrix_settings.py" "$@"

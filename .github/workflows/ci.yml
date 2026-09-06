@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-checks:
+    name: Portable Fedora checks
+    runs-on: ubuntu-latest
+    container: fedora:latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install official Fedora validation tools
+        run: dnf -y install bash coreutils findutils grep python3 shellcheck
+
+      - name: Validate shell syntax
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          while IFS= read -r -d '' file; do
+            first_line="$(head -n 1 -- "$file" || true)"
+            case "$file:$first_line" in
+              *.sh:*|*:'#!'*bash*|*:'#!'*sh*) bash -n -- "$file" ;;
+            esac
+          done < <(find bin scripts tests -type f -print0 | sort -z)
+
+      - name: Run ShellCheck
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          while IFS= read -r -d '' file; do
+            first_line="$(head -n 1 -- "$file" || true)"
+            case "$file:$first_line" in
+              *.sh:*|*:'#!'*bash*|*:'#!'*sh*) shellcheck -- "$file" ;;
+            esac
+          done < <(find bin scripts tests -type f -print0 | sort -z)
+
+      - name: Validate Python syntax without bytecode caches
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          while IFS= read -r -d '' file; do
+            python3 -c 'import ast, pathlib, sys; path = pathlib.Path(sys.argv[1]); ast.parse(path.read_bytes(), filename=str(path))' "$file"
+          done < <(find bin tests -type f -name '*.py' -print0 | sort -z)
+
+      - name: Run portable tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Check optional provenance audit skips cleanly
+        run: python3 tests/optional_upstream_provenance.py

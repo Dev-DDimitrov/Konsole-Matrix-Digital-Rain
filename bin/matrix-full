@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Part of Konsole Matrix Digital Rain.
+set -Eeuo pipefail
+PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/konsole/Matrix.profile"
+BACKGROUND_MODE="black"
+for ((i = 1; i <= $#; i++)); do
+    if [[ "${!i}" == "--background" ]]; then
+        j=$((i + 1)); [[ "$j" -le "$#" ]] && BACKGROUND_MODE="${!j}"
+    elif [[ "${!i}" == --background=* ]]; then
+        BACKGROUND_MODE="${!i#--background=}"
+    fi
+done
+TRANSPARENCY_OPTION=(--notransparency)
+if [[ "$BACKGROUND_MODE" == "translucent" ]]; then
+    PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/konsole/Matrix-Translucent.profile"
+    TRANSPARENCY_OPTION=()
+fi
+exec konsole --separate --profile "$PROFILE" --hide-menubar --hide-toolbars --hide-tabbar "${TRANSPARENCY_OPTION[@]}" --fullscreen \
+  -e "$(dirname "$0")/unimatrix-fade" "$@"

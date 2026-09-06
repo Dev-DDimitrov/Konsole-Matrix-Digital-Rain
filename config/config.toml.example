@@ -1,0 +1,42 @@
+# Konsole-Matrix-Digital-Rain shipped user-configuration example.
+# CLI options override the selected preset, this file, and built-in defaults.
+# A first install may copy this file to the user config location; upgrades do
+# not overwrite an existing user config.
+
+respect_idle_inhibitors = true
+
+[rain]
+speed = 96
+trail_min = 16
+trail_max = 38
+density = 52
+fade_levels = 6
+white_head_rate = 75
+mutation_rate = 0.8
+black_background = false
+background = "profile"
+color = "green"
+color_cycle = false
+cycle_period = 72.0
+cycle_speed = "normal"
+cycle_direction = "forward"
+manual_hue_step = 0.015
+fps_cap = 60
+reduced_motion = false
+
+[saver]
+enabled = true
+idle_minutes = 3
+lock_mode = "visual-only"
+lock_delay_seconds = 30
+
+[battery]
+enabled = false
+disable_below_percent = 20
+
+[exit_guard]
+enabled = false
+binding = "Ctrl+Y"
+
+[settings_lock]
+enabled = false

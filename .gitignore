@@ -1,0 +1,37 @@
+# Local Codex/workspace metadata; never public repository content.
+.agents/
+.codex/
+
+# Python caches and test output.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs, editor state, and temporary files.
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local mutable configuration and generated runtime state.
+config/config.toml
+presets/
+last-effective.toml
+matrix-all-*/
+matrix-saver/
+
+# Private development material and uncurated generated captures.
+backup/
+backups/
+audit-output/
+*.sha256
+captures/
+recordings/

@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Part of Konsole Matrix Digital Rain.
+# Launch one synchronized Matrix Konsole per currently enabled KDE output.
+set -Eeuo pipefail
+umask 077
+
+BIN_DIR="$(dirname "$0")"
+PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/konsole/Matrix.profile"
+SYNC_RENDERER="$BIN_DIR/unimatrix-fade-sync"
+RUNTIME_ROOT="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+SHOW_CURSOR=0
+BACKGROUND_MODE="black"
+
+# Keep this controller-specific option out of renderer argument forwarding.
+FILTERED_ARGS=()
+for argument in "$@"; do
+    if [[ "$argument" == "--show-cursor" ]]; then
+        SHOW_CURSOR=1
+    else
+        FILTERED_ARGS+=("$argument")
+    fi
+done
+set -- "${FILTERED_ARGS[@]}"
+
+for ((argument_index = 1; argument_index <= $#; argument_index++)); do
+    if [[ "${!argument_index}" == "--background" ]]; then
+        next_index=$((argument_index + 1))
+        [[ "$next_index" -lt "$#" ]] && BACKGROUND_MODE="${!next_index}"
+    elif [[ "${!argument_index}" == --background=* ]]; then
+        BACKGROUND_MODE="${!argument_index#--background=}"
+    fi
+done
+if [[ "$BACKGROUND_MODE" == "translucent" ]]; then
+    PROFILE="${XDG_DATA_HOME:-$HOME/.local/share}/konsole/Matrix-Translucent.profile"
+    TRANSPARENCY_OPTION=()
+else
+    TRANSPARENCY_OPTION=(--notransparency)
+fi
+
+for cmd in konsole kscreen-doctor gdbus python3; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: required command not found: $cmd" >&2; exit 1; }
+done
+[[ -f "$PROFILE" ]] || { echo "ERROR: Matrix Konsole profile not found: $PROFILE" >&2; exit 1; }
+[[ -x "$SYNC_RENDERER" ]] || { echo "ERROR: synchronized renderer not executable: $SYNC_RENDERER" >&2; exit 1; }
+
+if [[ "${1-}" == "--help" ]]; then
+    echo "matrix-all [--show-cursor] [renderer options]"
+    echo "Renderer options include --preset, --color, --background, --color-cycle,"
+    echo "--cycle-period, --cycle-speed, --cycle-direction, --fps-cap, and --reduced-motion."
+    PYTHONPATH="$BIN_DIR" python3 "$BIN_DIR/matrix_guide.py" --controls
+    exit 0
+fi
+DRY_RUN=0
+if [[ "${1-}" == "--dry-run" ]]; then
+    DRY_RUN=1
+    shift
+fi
+
+read_outputs() {
+    kscreen-doctor --json | python3 -c '
+import json, sys
+try:
+    outputs = json.load(sys.stdin).get("outputs", [])
+except (ValueError, TypeError):
+    outputs = []
+for output in outputs:
+    connected = bool(output.get("connected", False))
+    enabled = output.get("enabled")
+    if enabled is None:
+        enabled = connected and bool(output.get("currentModeId"))
+    if connected and enabled:
+        print(str(output.get("id", "?")) + "\t" + str(output.get("name", "unknown")))
+'
+}
+
+mapfile -t OUTPUTS < <(read_outputs)
+COUNT="${#OUTPUTS[@]}"
+(( COUNT > 0 )) || { echo "ERROR: no enabled displays detected." >&2; exit 1; }
+if (( DRY_RUN )); then
+    echo "Detected $COUNT enabled display(s)."
+    printf '  %s\n' "${OUTPUTS[@]}"
+    exit 0
+fi
+TOKEN="$(python3 -c 'import secrets; print(secrets.token_hex(12))')"
+SESSION_DIR="$RUNTIME_ROOT/matrix-all-$TOKEN"
+STATE="$SESSION_DIR/state.json"
+KWIN_JS="$SESSION_DIR/place.js"
+PLUGIN="matrixall_$TOKEN"
+mkdir -m 700 -- "$SESSION_DIR"
+
+PYTHONPATH="$BIN_DIR" BACKGROUND_MODE="$BACKGROUND_MODE" python3 - "$STATE" <<'PY'
+import json, os, sys, time
+from matrix_config import DEFAULTS
+background = os.environ.get("BACKGROUND_MODE", "black")
+payload = {"generation": time.time_ns(), "writer": os.getpid(), "quit": False,
+           "message": "", "status_enabled": True, "paused": False,
+           "pause_started": 0.0, "cycle_paused_elapsed": 0.0,
+           "cycle_epoch": time.monotonic(),
+           "settings_lock": False,
+           "settings": {**DEFAULTS, "background": background,
+                        "black_background": background == "black"}}
+with open(sys.argv[1], "x", encoding="utf-8") as handle:
+    json.dump(payload, handle, separators=(",", ":")); handle.write("\n")
+os.chmod(sys.argv[1], 0o600)
+PY
+
+cat > "$KWIN_JS" <<EOF
+const matrixToken = "$TOKEN";
+const marker = "MATRIXALL|" + matrixToken + "|";
+function placeMatrixWindow(window) {
+    const caption = String(window.caption);
+    const markerPos = caption.indexOf(marker);
+    if (markerPos < 0) return;
+    const match = caption.substring(markerPos + marker.length).match(/^([0-9]+)/);
+    if (!match) return;
+    const index = parseInt(match[1], 10);
+    const outputs = workspace.screens;
+    if (index < 0 || index >= outputs.length) { if (window.close) window.close(); return; }
+    workspace.sendClientToScreen(window, outputs[index]);
+    if (window.fullScreenable) window.fullScreen = true;
+    window.keepAbove = true;
+    window.skipTaskbar = true;
+    window.skipPager = true;
+    window.skipSwitcher = true;
+}
+function placeAll() {
+    const windows = workspace.stackingOrder;
+    for (let i = 0; i < windows.length; ++i) placeMatrixWindow(windows[i]);
+}
+function watchMatrixWindow(window) {
+    placeMatrixWindow(window);
+    if (window.captionChanged) window.captionChanged.connect(() => placeMatrixWindow(window));
+    if (window.outputChanged) window.outputChanged.connect(() => placeMatrixWindow(window));
+    if (window.fullScreenChanged) window.fullScreenChanged.connect(() => { if (!window.fullScreen) placeMatrixWindow(window); });
+}
+workspace.windowAdded.connect(watchMatrixWindow);
+if (workspace.screensChanged) workspace.screensChanged.connect(placeAll);
+placeAll();
+EOF
+chmod 600 "$KWIN_JS"
+
+KWIN_LOADED=0
+KWIN_SCRIPT_PATH=""
+KONSOLE_PIDS=()
+CURSOR_ACTIVE=0
+EXIT_GUARD_ENABLED="$(PYTHONPATH="$BIN_DIR" python3 -c 'from matrix_config import load_config; print("true" if load_config()[0].get("exit_guard", {}).get("enabled", False) else "false")')"
+EXIT_GUARD_BINDING="$(PYTHONPATH="$BIN_DIR" python3 -c 'from matrix_config import load_config; print(load_config()[0].get("exit_guard", {}).get("binding", "Ctrl+Y"))')"
+cleanup() {
+    local rc=$?
+    trap - EXIT INT TERM HUP
+    if [[ -f "$STATE" ]]; then
+        PYTHONPATH="$BIN_DIR" python3 - "$STATE" <<'PY' 2>/dev/null || true
+import json, os, sys, time
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle: payload = json.load(handle)
+    payload["generation"] = time.time_ns(); payload["writer"] = os.getpid(); payload["quit"] = True
+    tmp = path + ".cleanup"
+    with open(tmp, "x", encoding="utf-8") as handle: json.dump(payload, handle); handle.write("\n")
+    os.chmod(tmp, 0o600); os.replace(tmp, path)
+except (OSError, ValueError):
+    pass
+PY
+    fi
+    for pid in "${KONSOLE_PIDS[@]}"; do
+        if [[ -r "/proc/$pid/cmdline" ]] && tr "\0" " " <"/proc/$pid/cmdline" | grep -Fq "MATRIXALL|$TOKEN|"; then
+            kill "$pid" 2>/dev/null || true
+        fi
+    done
+    if (( KWIN_LOADED == 1 )); then
+        if [[ -n "$KWIN_SCRIPT_PATH" ]]; then
+            gdbus call --session --dest org.kde.KWin --object-path "$KWIN_SCRIPT_PATH" --method org.kde.kwin.Script.stop >/dev/null 2>&1 || true
+        fi
+        gdbus call --session --dest org.kde.KWin --object-path /Scripting --method org.kde.kwin.Scripting.unloadScript "$PLUGIN" >/dev/null 2>&1 || true
+    fi
+    if (( CURSOR_ACTIVE == 1 )); then
+        PYTHONPATH="$BIN_DIR" python3 -c 'import matrix_cursor; matrix_cursor.restore()' >/dev/null 2>&1 || true
+    fi
+    rm -f -- "$STATE" "$KWIN_JS"
+    rmdir -- "$SESSION_DIR" 2>/dev/null || true
+    exit "$rc"
+}
+on_interrupt() {
+    if [[ "$EXIT_GUARD_ENABLED" == "true" ]]; then
+        echo "Exit guard enabled — use $EXIT_GUARD_BINDING in a Matrix display to exit." >&2
+        return
+    fi
+    cleanup
+}
+trap cleanup EXIT TERM HUP
+trap on_interrupt INT
+
+LOAD_OUT="$(gdbus call --session --dest org.kde.KWin --object-path /Scripting --method org.kde.kwin.Scripting.loadScript "$KWIN_JS" "$PLUGIN")"
+SCRIPT_ID="$(grep -oE -- "-?[0-9]+" <<<"$LOAD_OUT" | head -n1 || true)"
+[[ -n "$SCRIPT_ID" && "$SCRIPT_ID" != "-1" ]] || { echo "ERROR: KWin refused the temporary placement script." >&2; exit 1; }
+KWIN_LOADED=1
+for candidate in "/Scripting/Script$SCRIPT_ID" "/$SCRIPT_ID"; do
+    if gdbus introspect --session --dest org.kde.KWin --object-path "$candidate" >/dev/null 2>&1; then
+        KWIN_SCRIPT_PATH="$candidate"
+        break
+    fi
+done
+[[ -n "$KWIN_SCRIPT_PATH" ]] || { echo "ERROR: could not locate the KWin script object." >&2; exit 1; }
+gdbus call --session --dest org.kde.KWin --object-path "$KWIN_SCRIPT_PATH" --method org.kde.kwin.Script.run >/dev/null 2>&1 || \
+gdbus call --session --dest org.kde.KWin --object-path "$KWIN_SCRIPT_PATH" --method org.kde.kwin.Scripting.run >/dev/null
+
+if [[ "$SHOW_CURSOR" == 0 ]]; then
+    if PYTHONPATH="$BIN_DIR" python3 -c 'import matrix_cursor; raise SystemExit(0 if matrix_cursor.activate() else 1)' >/dev/null 2>&1; then
+        CURSOR_ACTIVE=1
+        echo "Cursor suppression: stock Plasma Hide Cursor effect (best effort)."
+    else
+        echo "Cursor suppression: unavailable; continuing without a cursor override." >&2
+    fi
+else
+    # Even with the explicit visible-cursor override, recover a stale marker
+    # left by an earlier crashed Matrix-all session before launching windows.
+    PYTHONPATH="$BIN_DIR" python3 -c 'import matrix_cursor; matrix_cursor.restore()' >/dev/null 2>&1 || true
+fi
+
+for ((i=0; i<COUNT; ++i)); do
+    TAG="MATRIXALL|$TOKEN|$i"
+    konsole --separate --profile "$PROFILE" --hide-menubar --hide-toolbars --hide-tabbar "${TRANSPARENCY_OPTION[@]}" \
+        -p "LocalTabTitleFormat=%w" -p "RemoteTabTitleFormat=%w" -e "$SYNC_RENDERER" \
+        --sync-state "$STATE" --window-tag "$TAG" --background "$BACKGROUND_MODE" "$@" &
+    KONSOLE_PIDS+=("$!")
+done
+echo "Started $COUNT synchronized Matrix window(s)."
+if [[ "$EXIT_GUARD_ENABLED" == "true" ]]; then
+    echo "Exit guard active: use $EXIT_GUARD_BINDING in any Matrix display to close all windows."
+else
+    echo "q / Space / Esc / Ctrl+C closes all windows together."
+fi
+
+initial_count="$COUNT"
+while :; do
+    current_count="$(read_outputs 2>/dev/null | sed "/^$/d" | wc -l)"
+    if [[ "$current_count" != "$initial_count" ]]; then
+        echo "Display topology changed; closing this Matrix run for safe reconciliation." >&2
+        cleanup
+    fi
+    alive=0
+    for pid in "${KONSOLE_PIDS[@]}"; do
+        kill -0 "$pid" 2>/dev/null && alive=$((alive + 1))
+    done
+    (( alive > 0 )) || break
+    sleep 2
+done
