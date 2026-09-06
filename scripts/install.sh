@@ -87,9 +87,9 @@ backup_and_install() {
     elif (( DRY_RUN )); then
         note "would install: $target"
     else
-        mkdir -m 700 -p "$(dirname -- "$target")"
+        mkdir -p -- "$(dirname -- "$target")"
         if [[ -f "$target" ]]; then
-            mkdir -m 700 -p "$BACKUP_DIR"
+            mkdir -p -- "$BACKUP_DIR"
             cp -p -- "$target" "$BACKUP_DIR/$(basename -- "$target")"
             note "backup: $BACKUP_DIR/$(basename -- "$target")"
         fi
@@ -113,13 +113,13 @@ if [[ -e "$CONFIG_TARGET/config.toml" ]]; then
 elif (( DRY_RUN )); then
     note "would create first-install user config: $CONFIG_TARGET/config.toml"
 else
-    mkdir -m 700 -p "$CONFIG_TARGET"
+    mkdir -p -- "$CONFIG_TARGET"
     install -m 600 -- "$PROJECT_ROOT/config/config.toml.example" "$CONFIG_TARGET/config.toml"
     note "created first-install user config: $CONFIG_TARGET/config.toml"
 fi
 
 if (( ! DRY_RUN )); then
-    mkdir -m 700 -p "$PROJECT_DATA_TARGET"
+    mkdir -p -- "$PROJECT_DATA_TARGET"
     temporary="$MANIFEST.tmp.$$"
     : > "$temporary"
     chmod 600 "$temporary"
