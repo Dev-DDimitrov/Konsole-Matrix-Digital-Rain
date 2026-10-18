@@ -18,7 +18,7 @@ MANIFEST="$PROJECT_DATA_TARGET/install-manifest.tsv"
 DRY_RUN=0
 
 RUNTIME_FILES=(
-    matrix matrix-all matrix-doctor matrix-full matrix-guide matrix-konsole
+    matrix matrix-all matrix-doctor matrix-full matrix-guide matrix-help matrix-konsole
     matrix-preset matrix-preview matrix-saver matrix-settings
     unimatrix-fade unimatrix-fade-sync
     matrix_config.py matrix_cursor.py matrix_doctor.py matrix_guide.py

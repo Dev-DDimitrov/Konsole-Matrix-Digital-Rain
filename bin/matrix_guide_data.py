@@ -19,6 +19,7 @@ COMMANDS = (
     ("matrix-preset", "List, save, show, rename, or delete local user visual presets."),
     ("matrix-doctor", "Run read-only Fedora/KDE/Matrix diagnostics."),
     ("matrix-guide", "Show this command, option, and control reference."),
+    ("matrix-help", "Alias for matrix-guide; accepts the same options."),
 )
 
 

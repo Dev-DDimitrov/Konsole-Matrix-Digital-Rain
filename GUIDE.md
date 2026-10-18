@@ -4,8 +4,8 @@ This guide describes the public command surface. The executable `matrix-guide`
 is the generated live reference; [CONTROLS.md](CONTROLS.md) contains the
 compact control table.
 
-The authoritative live reference is the executable `matrix-guide`. It is
-generated from `bin/matrix_guide_data.py`, so command and control metadata has
+The authoritative live reference is the executable `matrix-guide`, also
+available as `matrix-help` with the same options. It is generated from `bin/matrix_guide_data.py`, so command and control metadata has
 one maintained source.
 
 ## Commands

@@ -85,6 +85,7 @@ service.
 | `matrix-preset` | Save and manage local visual presets. |
 | `matrix-doctor` | Run read-only Fedora/KDE/Matrix diagnostics. |
 | `matrix-guide` | Show the generated command and control reference. |
+| `matrix-help` | Alias for `matrix-guide`; supports the same options. |
 
 See [CONTROLS.md](CONTROLS.md), [GUIDE.md](GUIDE.md), and the executable
 `matrix-guide` for the complete current control surface.
