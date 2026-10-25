@@ -21,6 +21,15 @@ security boundary; immediate and after modes hand off to KDE's real lock
 mechanism. `matrix-doctor` is read-only. `matrix-settings` manages defaults,
 and `matrix-preset` manages local visual presets.
 
+`matrix-lock` manages the animated KDE lock-screen wallpaper with an
+independent low-power profile: `configure` opens a live preview with the
+normal Matrix controls and offers to save on exit, `set hue`/`set color`
+select exact colors, `capture-hue` imports a hue held with `h`, and
+`history`/`undo`/`restore` provide reversible configuration rollback.
+`enable` backs up the previous lock wallpaper before activating;
+`disable` restores it. See `matrix-guide --lock` for the complete workflow
+and the README's "Animated KDE lock screen" section for details.
+
 ## Defaults and configuration
 
 The intended cinematic defaults include speed 96, green, trail 16–38,

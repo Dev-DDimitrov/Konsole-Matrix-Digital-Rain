@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Part of Konsole Matrix Digital Rain.
+"""matrix-lock: configure the Matrix Digital Rain KDE lock-screen wallpaper."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import matrix_lockscreen as lock
+from matrix_config import (
+    COLORS,
+    ConfigError,
+    LAST_EFFECTIVE_PATH,
+    PRESETS,
+    clamp,
+    load_user_presets,
+)
+
+BIN = Path(__file__).resolve().parent
+GREETER = Path("/usr/libexec/kscreenlocker_greet")
+
+SET_KEYS = {
+    "color-cycle": ("color_cycle", "bool"),
+    "cycle-period": ("cycle_period", "float"),
+    "cycle-direction": ("cycle_direction", "str"),
+    "speed": ("speed", "int"),
+    "density": ("density", "int"),
+    "trail-min": ("trail_min", "int"),
+    "trail-max": ("trail_max", "int"),
+    "fade-levels": ("fade_levels", "int"),
+    "white-heads": ("white_head_rate", "int"),
+    "mutation-rate": ("mutation_rate", "float"),
+    "flashers": ("flashers", "bool"),
+    "async": ("asynchronous", "bool"),
+    "background": ("background", "str"),
+    "fps-cap": ("fps_cap", "int"),
+    "reduced-motion": ("reduced_motion", "bool"),
+    "glyph-size": ("glyph_size", "int"),
+    "render-scale": ("render_scale", "float"),
+    "render-mode": ("render_mode", "str"),
+}
+
+
+def _parse_bool(value):
+    text = str(value).strip().lower()
+    if text in ("on", "true", "yes", "1"):
+        return True
+    if text in ("off", "false", "no", "0"):
+        return False
+    raise ConfigError(f"expected on/off, got: {value}")
+
+
+def _save(values, note):
+    values, revision = lock.save_profile(values, note=note)
+    print(f"saved lock-screen profile (revision {revision})")
+    print(f"  {lock.summarize(values)}")
+    if lock.is_enabled():
+        lock.export_to_lockscreen(values)
+        print("exported to the active KDE lock screen (applies on next lock)")
+    return values
+
+
+def cmd_show(_args):
+    values = lock.load_profile()
+    print("LOCK-SCREEN MATRIX PROFILE")
+    print(f"  file = {lock.LOCK_CONFIG_PATH}")
+    for key in lock.LOCK_DEFAULTS:
+        print(f"  {key} = {values[key]}")
+    print(f"\n  {lock.summarize(values)}")
+    print(f"  enabled = {lock.is_enabled()}")
+    return 0
+
+
+def cmd_set(args):
+    values = lock.load_profile()
+    key = args.key.lower()
+    if key == "hue":
+        values = lock.set_hue_degrees(values, args.value)
+        print(f"hue {float(args.value) % 360:.0f}° -> {values['color']}")
+    elif key == "color":
+        values = lock.set_color(values, args.value)
+        print(f"color -> {values['color']}")
+    elif key in SET_KEYS:
+        leaf, kind = SET_KEYS[key]
+        if kind == "bool":
+            parsed = _parse_bool(args.value)
+        elif kind == "int":
+            parsed = int(args.value)
+        elif kind == "float":
+            parsed = float(args.value)
+        else:
+            parsed = str(args.value)
+        values[leaf] = parsed
+    else:
+        known = ", ".join(["hue", "color", *SET_KEYS])
+        raise ConfigError(f"unknown lock-screen setting: {args.key} (known: {known})")
+    _save(values, note=f"matrix-lock set {key}")
+    return 0
+
+
+def cmd_capture_hue(_args):
+    if not LAST_EFFECTIVE_PATH.exists():
+        raise ConfigError("no recorded Matrix session settings; run matrix, adjust, then press S or h")
+    terminal = lock.load_last_effective()
+    values = lock.load_profile()
+    phase = float(terminal.get("cycle_phase", 0.0)) % 1.0
+    if terminal.get("color_cycle") or terminal.get("hue_hold"):
+        values["cycle_phase"] = phase
+        values["color"] = lock.rgb_to_hex(lock.cycle_rgb(phase))
+        print(f"captured held hue: phase {phase:.4f} -> {values['color']}")
+    elif "color" in terminal:
+        values = lock.set_color(values, str(terminal["color"]))
+        print(f"captured color: {values['color']}")
+    else:
+        raise ConfigError("the recorded session has no hue information")
+    _save(values, note="matrix-lock capture-hue")
+    return 0
+
+
+def cmd_save(args):
+    if args.from_last:
+        values = lock.import_last_effective()
+        _save(values, note="matrix-lock save --from-last")
+    else:
+        # Re-validate and re-save the current profile (also re-exports if enabled).
+        _save(lock.load_profile(), note="matrix-lock save")
+    return 0
+
+
+def _run_terminal_preview(values):
+    renderer = BIN / "unimatrix-fade"
+    command = [str(renderer), *lock.renderer_preview_arguments(values)]
+    return subprocess.call(command)
+
+
+def cmd_preview(args):
+    if args.greeter:
+        if not GREETER.is_file():
+            raise ConfigError(f"greeter not found: {GREETER}")
+        if not lock.is_enabled():
+            print("note: the Matrix lock wallpaper is not enabled; the greeter will show the current wallpaper")
+        print("Starting the real lock-screen greeter in safe --testing mode (Esc closes it).")
+        return subprocess.call([str(GREETER), "--testing"])
+    values = lock.load_profile()
+    print("Terminal approximation of the lock-screen profile (q exits; nothing is saved).")
+    if values["color"] not in COLORS and not values["color_cycle"]:
+        print(f"note: exact color {values['color']} previews as the nearest spectrum hue; the lock screen shows the exact color")
+    time.sleep(1.2)
+    return _run_terminal_preview(values)
+
+
+def cmd_configure(_args):
+    values = lock.load_profile()
+    print("Lock-screen configuration session")
+    print("  - Use the normal Matrix controls (h holds a hue, Alt+arrows nudge, w heads, d/D density...).")
+    print("  - Exit with q when the preview looks right.")
+    print("  - You will then be asked whether to save it as the lock-screen profile.")
+    if values["color"] not in COLORS and not values["color_cycle"]:
+        print(f"  - note: exact color {values['color']} previews as the nearest spectrum hue.")
+    time.sleep(2.0)
+    before = LAST_EFFECTIVE_PATH.stat().st_mtime_ns if LAST_EFFECTIVE_PATH.exists() else -1
+    _run_terminal_preview(values)
+    after = LAST_EFFECTIVE_PATH.stat().st_mtime_ns if LAST_EFFECTIVE_PATH.exists() else -1
+    if after == before or after < 0:
+        print("No settings were recorded by the preview session; lock-screen profile unchanged.")
+        return 0
+    captured = lock.import_last_effective()
+    print("\nCaptured effective settings:")
+    print(f"  {lock.summarize(captured)}")
+    if not sys.stdin.isatty():
+        print("Non-interactive session: not saving. Use matrix-lock save --from-last to apply.")
+        return 0
+    answer = input("Save as the lock-screen profile? [y/N] ").strip().lower()
+    if answer in ("y", "yes"):
+        _save(captured, note="matrix-lock configure")
+    else:
+        print("Discarded; the lock-screen profile is unchanged.")
+    return 0
+
+
+def cmd_preset(args):
+    if args.preset_command == "list":
+        print("BUILT-IN PRESETS")
+        for name in PRESETS:
+            print(f"  {name}")
+        print("USER PRESETS")
+        user = load_user_presets()
+        for name in user or ():
+            print(f"  {name}")
+        if not user:
+            print("  (none)")
+        return 0
+    values, canonical = lock.apply_preset(lock.load_profile(), " ".join(args.name))
+    print(f"applied preset: {canonical}")
+    _save(values, note=f"matrix-lock preset apply {canonical}")
+    return 0
+
+
+def cmd_history(_args):
+    entries = lock.history_entries()
+    if not entries:
+        print("no saved lock-screen revisions yet")
+        return 0
+    print(f"{'REVISION':<18} {'SAVED':<20} SUMMARY")
+    for revision, values in entries:
+        stamp = f"{revision[0:4]}-{revision[4:6]}-{revision[6:8]} {revision[9:11]}:{revision[11:13]}:{revision[13:15]}"
+        print(f"{revision:<18} {stamp:<20} {lock.summarize(values)}")
+    return 0
+
+
+def cmd_undo(_args):
+    entries = lock.history_entries()
+    if len(entries) < 2:
+        raise ConfigError("no previous revision to restore")
+    current = lock.load_profile()
+    target = None
+    for revision, values in entries:
+        if values != current:
+            target = (revision, values)
+            break
+    if target is None:
+        raise ConfigError("all recorded revisions match the current profile")
+    print(f"restoring revision {target[0]}")
+    _save(target[1], note=f"matrix-lock undo -> {target[0]}")
+    return 0
+
+
+def cmd_restore(args):
+    values = lock.load_revision(args.revision)
+    print(f"restoring revision {args.revision}")
+    _save(values, note=f"matrix-lock restore {args.revision}")
+    return 0
+
+
+def cmd_enable(_args):
+    previous = lock.enable()
+    print(f"Matrix lock-screen wallpaper enabled (previous plugin: {previous}).")
+    print("The change applies the next time the screen locks.")
+    print("Test safely first with: matrix-lock preview --greeter")
+    return 0
+
+
+def cmd_disable(_args):
+    previous = lock.disable()
+    print(f"Matrix lock-screen wallpaper disabled; restored plugin: {previous}")
+    return 0
+
+
+def cmd_status(_args):
+    print(f"plugin installed : {lock.plugin_installed()} ({lock.PLUGIN_DIR})")
+    print(f"enabled          : {lock.is_enabled()} (kscreenlockerrc WallpaperPlugin = {lock.current_wallpaper_plugin()})")
+    try:
+        values = lock.load_profile()
+        print(f"profile          : {lock.LOCK_CONFIG_PATH}")
+        print(f"                   {lock.summarize(values)}")
+    except ConfigError as exc:
+        print(f"profile          : INVALID ({exc})")
+    entries = lock.history_entries()
+    print(f"history          : {len(entries)} revision(s) in {lock.HISTORY_DIR}")
+    print(f"rollback backup  : {'present' if lock.WALLPAPER_BACKUP_PATH.exists() else 'none'} ({lock.WALLPAPER_BACKUP_PATH})")
+    return 0
+
+
+def cmd_doctor(_args):
+    def report(label, status, detail):
+        print(f"{status:<4} {label}: {detail}")
+
+    print("matrix-lock doctor (read-only)")
+    report("Wallpaper plugin files", "PASS" if lock.plugin_installed() else "FAIL", str(lock.PLUGIN_DIR))
+    report("Greeter binary", "PASS" if GREETER.is_file() else "WARN", str(GREETER))
+    report("kscreenlockerrc", "PASS" if lock.KSCREENLOCKERRC.exists() else "WARN", str(lock.KSCREENLOCKERRC))
+    report("Wallpaper plugin selected", "PASS" if lock.is_enabled() else "WARN",
+           lock.current_wallpaper_plugin())
+    try:
+        values = lock.load_profile()
+        report("Lock profile", "PASS", lock.summarize(values))
+    except ConfigError as exc:
+        report("Lock profile", "FAIL", str(exc))
+    report("Profile history", "PASS", f"{len(lock.history_entries())} revision(s)")
+    report("Rollback backup", "PASS" if lock.WALLPAPER_BACKUP_PATH.exists() or not lock.is_enabled() else "WARN",
+           str(lock.WALLPAPER_BACKUP_PATH))
+    report("Terminal capture", "PASS" if LAST_EFFECTIVE_PATH.exists() else "WARN",
+           str(LAST_EFFECTIVE_PATH) if LAST_EFFECTIVE_PATH.exists() else "no session recorded yet")
+    for tool in ("kscreen-doctor", "loginctl"):
+        report(tool, "PASS" if shutil.which(tool) else "WARN", shutil.which(tool) or "not found")
+    report("Authentication", "PASS", "matrix-lock never modifies KScreenLocker, PAM, or SDDM; wallpaper only")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="matrix-lock",
+        description="Configure the Matrix Digital Rain animated KDE lock-screen wallpaper.",
+        epilog="The lock-screen profile is independent from the terminal Matrix profile. "
+               "Workflow: matrix-lock configure -> adjust -> save; matrix-lock enable activates it.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("configure", help="live terminal preview session; offers to save on exit")
+    preview = sub.add_parser("preview", help="preview the current lock profile")
+    preview.add_argument("--greeter", action="store_true",
+                         help="run the real KDE greeter in safe --testing mode")
+    save = sub.add_parser("save", help="save/re-export the profile")
+    save.add_argument("--from-last", action="store_true",
+                      help="import the most recent effective terminal Matrix settings")
+    sub.add_parser("show", help="print the active lock-screen settings")
+    setter = sub.add_parser("set", help="set one lock-screen value (hue, color, color-cycle, speed, ...)")
+    setter.add_argument("key")
+    setter.add_argument("value")
+    sub.add_parser("capture-hue", help="capture the most recently held hue from a Matrix session")
+    preset = sub.add_parser("preset", help="list or apply Matrix presets to the lock profile")
+    preset_sub = preset.add_subparsers(dest="preset_command", required=True)
+    preset_sub.add_parser("list")
+    apply_parser = preset_sub.add_parser("apply")
+    apply_parser.add_argument("name", nargs="+")
+    sub.add_parser("history", help="list saved lock-screen revisions")
+    sub.add_parser("undo", help="restore the most recent different revision")
+    restore = sub.add_parser("restore", help="restore a specific revision")
+    restore.add_argument("revision")
+    sub.add_parser("enable", help="activate the Matrix lock-screen wallpaper (backs up the previous one)")
+    sub.add_parser("disable", help="restore the previous lock-screen wallpaper")
+    sub.add_parser("status", help="show installation/activation state")
+    sub.add_parser("doctor", help="read-only lock-screen diagnostics")
+    args = parser.parse_args()
+    handlers = {
+        "configure": cmd_configure, "preview": cmd_preview, "save": cmd_save,
+        "show": cmd_show, "set": cmd_set, "capture-hue": cmd_capture_hue,
+        "preset": cmd_preset, "history": cmd_history, "undo": cmd_undo,
+        "restore": cmd_restore, "enable": cmd_enable, "disable": cmd_disable,
+        "status": cmd_status, "doctor": cmd_doctor,
+    }
+    try:
+        return handlers[args.command](args)
+    except ConfigError as exc:
+        parser.error(str(exc))
+    except (ValueError, TypeError) as exc:
+        parser.error(str(exc))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

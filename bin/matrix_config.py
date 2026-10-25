@@ -418,6 +418,11 @@ def add_cli_arguments(parser):
     parser.add_argument("--cycle-direction", choices=("forward", "reverse"), default=None)
     parser.add_argument("--fps-cap", type=int, default=None)
     parser.add_argument("--reduced-motion", action="store_true", default=None)
+    parser.add_argument("--cycle-phase", dest="cycle_phase", type=float, default=None,
+                        help="initial spectrum phase 0.0-1.0 (used by matrix-lock previews)")
+    parser.add_argument("--hue-hold", dest="hue_hold", action="store_true", default=None,
+                        help="start with the hue held at the given cycle phase")
+    parser.add_argument("--no-hue-hold", dest="hue_hold", action="store_false")
     parser.add_argument("--manual-hue-step", type=float, default=None)
     parser.add_argument("--spacing", type=int, default=2)
     parser.add_argument("--chars", type=str, default=None)
@@ -570,18 +575,64 @@ def cycle_rgb(phase, direction="forward"):
     return _hue_rgb(CYCLE_WAYPOINTS[-1][1])
 
 
+def nearest_cycle_phase(rgb):
+    """Map a static direct palette color onto the nearest spectrum sample."""
+    best = 0.0
+    best_distance = float("inf")
+    for step in range(720):
+        phase = step / 720.0
+        distance = sum((left - right) ** 2 for left, right in zip(cycle_rgb(phase), rgb))
+        if distance < best_distance:
+            best, best_distance = phase, distance
+    return best
+
+
+def parse_hex_color(value):
+    """Parse #rgb/#rrggbb into an (r, g, b) tuple; reject anything else."""
+    if not isinstance(value, str):
+        raise ConfigError("color must be text")
+    text = value.strip().lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", text):
+        return tuple(int(ch * 2, 16) for ch in text[1:])
+    if re.fullmatch(r"#[0-9a-f]{6}", text):
+        return tuple(int(text[i:i + 2], 16) for i in (1, 3, 5))
+    raise ConfigError(f"not a valid HEX color: {value!r} (expected #RRGGBB)")
+
+
+def rgb_to_hex(rgb):
+    return "#{:02x}{:02x}{:02x}".format(*(int(clamp(v, 0, 255)) for v in rgb))
+
+
+def hue_degrees_rgb(degrees, saturation=1.0, value=1.0):
+    """Full-intensity RGB for a 0-359 hue with sensible normalization."""
+    try:
+        normalized = float(degrees) % 360.0
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("hue must be a number of degrees (0-359)") from exc
+    return _hue_rgb(normalized, saturation, value)
+
+
+def ramp_rgb(base_rgb, levels=6):
+    """Bright-to-dark trail ramp as true RGB tuples (shared with the lock QML)."""
+    hsv = colorsys.rgb_to_hsv(*(v / 255.0 for v in base_rgb))
+    brightness = (1.0, 0.82, 0.63, 0.46, 0.30, 0.16)
+    full = [
+        _hue_rgb(hsv[0] * 360.0, max(0.72, hsv[1]), min(1.0, hsv[2] * level))
+        for level in brightness
+    ]
+    if levels >= len(full):
+        return full
+    last = len(full) - 1
+    return [full[round(i * last / (levels - 1))] for i in range(levels)]
+
+
 def ramp_indices(color, phase=0.0, direction="forward"):
     if color == "white":
         rgb_values = [(255, 255, 255), (238, 238, 238), (192, 192, 192),
                       (140, 140, 140), (82, 82, 82), (35, 35, 35)]
     else:
         base = cycle_rgb(phase, direction) if color == "cycle" else COLOR_RGB[color]
-        hsv = colorsys.rgb_to_hsv(*(v / 255.0 for v in base))
-        brightness = (1.0, 0.82, 0.63, 0.46, 0.30, 0.16)
-        rgb_values = [
-            _hue_rgb(hsv[0] * 360.0, max(0.72, hsv[1]), min(1.0, hsv[2] * level))
-            for level in brightness
-        ]
+        rgb_values = ramp_rgb(base)
     return [nearest_xterm(rgb) for rgb in rgb_values]
 
 

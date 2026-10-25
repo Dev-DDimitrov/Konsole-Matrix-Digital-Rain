@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from matrix_config import CYCLE_SPEEDS, EXIT_GUARD_DEFAULTS, MATRIX_ALL_DEFAULTS, PRESETS, load_config, load_user_presets
-from matrix_guide_data import COLORS_INFO, COMMANDS, CONTROLS, SAVER_MODES
+from matrix_guide_data import COLORS_INFO, COMMANDS, CONTROLS, LOCK_COMMANDS, SAVER_MODES
 
 
 def heading(title):
@@ -82,6 +82,22 @@ def saver():
     print("Legacy matrix-saver --once --lock-mode immediate --dry-run remains supported.")
 
 
+def lockscreen():
+    heading("Lock screen")
+    print("The KDE lock screen can show live Matrix rain as its wallpaper, with an")
+    print("independent low-power profile. Every monitor rains independently while the")
+    print("hue stays synchronized. KDE authentication is never modified.")
+    print("")
+    for command, description in LOCK_COMMANDS:
+        print(f"{command:<38} {description}")
+    print("")
+    print("Exact hue workflow: matrix-lock configure -> press c to cycle -> press h at the")
+    print("perfect moment -> exit with q -> answer y to save. The held hue is captured exactly.")
+    print("Cycling starts from the saved hue and stays synchronized across monitors.")
+    print("Changes apply on the next lock; matrix-lock preview --greeter tests safely first.")
+    print("Lock-screen saves never change terminal Matrix settings, and vice versa.")
+
+
 def settings():
     heading("Settings and precedence")
     print("Precedence: explicit CLI option > explicit preset > user default > built-in default.")
@@ -111,6 +127,9 @@ def examples():
         "matrix-settings set speed 96",
         "matrix-preset save \"Night Blue\" --from-last",
         "matrix-saver --once --lock-mode immediate --dry-run",
+        "matrix-lock configure",
+        "matrix-lock set color \"#8B5CF6\"",
+        "matrix-lock preview --greeter",
         "matrix-doctor",
     ):
         print(f"  {command}")
@@ -125,6 +144,7 @@ def main():
     parser.add_argument("--colors", action="store_true")
     parser.add_argument("--presets", action="store_true")
     parser.add_argument("--saver", action="store_true")
+    parser.add_argument("--lock", action="store_true")
     parser.add_argument("--examples", action="store_true")
     parser.add_argument("--settings", action="store_true")
     parser.add_argument("--full", action="store_true")
@@ -141,6 +161,8 @@ def main():
         presets()
     if show_all or args.saver:
         saver()
+    if show_all or args.lock:
+        lockscreen()
     if show_all or args.settings:
         settings()
     if show_all or args.examples:

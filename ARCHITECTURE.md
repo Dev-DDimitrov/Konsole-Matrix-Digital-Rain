@@ -28,6 +28,19 @@ activates immediately. Automatic mode requires the available standards-based
 session idle source. Immediate and after modes call `loginctl lock-session`;
 the secure KDE lock screen is authoritative.
 
+## Lock-screen wallpaper
+
+The animated lock screen is a Plasma 6 QML wallpaper plugin installed to the
+user wallpaper location. It renders with a Canvas per screen; each instance
+simulates its own rainfall while hue is a pure function of wall-clock time and
+the exported phase anchor, so screens stay synchronized without IPC. The
+`matrix-lock` CLI owns the canonical profile (`lockscreen.toml`), a bounded
+revision history, and the one-way export that compiles the profile into the
+plugin's KConfig group in `kscreenlockerrc`. No project process runs while the
+screen is locked; the stock KDE greeter reads the exported configuration. The
+default low-power render mode paints one fade overlay plus newly advanced
+glyph heads per step and suspends when frame delivery stalls (displays off).
+
 ## Installation state
 
 The installer records only the files it installed, with SHA-256 values, in a

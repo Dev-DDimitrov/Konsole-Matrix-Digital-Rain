@@ -33,6 +33,9 @@ controllable.
 - Live controls for color, cycling, speed, hue hold, pause, white heads,
   backgrounds, settings lock, and safe exit handling.
 - Independent terminal rain or synchronized multi-monitor rainfall.
+- Native animated Matrix rain on the KDE lock screen via a Plasma 6 wallpaper
+  plugin with its own low-power profile, exact hue capture, revision history,
+  and safe enable/disable rollback (`matrix-lock`).
 - Optional Plasma stock Hide Cursor integration with stale-state recovery.
 - Optional user-level systemd saver service that is installed but never enabled
   automatically.
@@ -81,6 +84,7 @@ service.
 | `matrix-all` | Open synchronized fullscreen windows across enabled displays. |
 | `matrix-preview` | Preview a palette or preset in a normal Konsole window. |
 | `matrix-saver` | Run the idle-aware visual and secure saver controller. |
+| `matrix-lock` | Configure the animated Matrix KDE lock-screen wallpaper. |
 | `matrix-settings` | Inspect and manage global visual defaults. |
 | `matrix-preset` | Save and manage local visual presets. |
 | `matrix-doctor` | Run read-only Fedora/KDE/Matrix diagnostics. |
@@ -105,6 +109,46 @@ animation pause state.
 The ordinary renderer advances each rainfall stream independently. `matrix-all`
 shares visual settings, controls, hue state, pause state, and exit state across
 its windows while each display continues its own rain simulation.
+
+## Animated KDE lock screen
+
+`matrix-lock` manages a native Plasma 6 wallpaper plugin
+(`io.github.devddimitrov.matrixrain`) that renders live Matrix rain behind
+KDE's real lock screen. Every monitor runs its own independent rainfall while
+color and hue cycling stay synchronized across displays through a shared
+wall-clock phase. The lock-screen profile is fully independent from the
+terminal profile and defaults to conservative low-power values
+(12 FPS cap, ambient speed, 25% white heads, flashes off).
+
+The core workflow:
+
+    matrix-lock configure          # live terminal preview; adjust with normal Matrix keys
+    matrix-lock preview --greeter  # safe real-greeter test (no input grab)
+    matrix-lock enable             # backs up the previous wallpaper, then activates
+    matrix-lock disable            # restores the previous lock wallpaper
+
+Exact hue selection works both visually (press `c` to cycle, `h` to hold the
+perfect hue, then save) and numerically (`matrix-lock set hue 270`,
+`matrix-lock set color "#8B5CF6"`). Every save keeps a bounded revision
+history: `matrix-lock history`, `matrix-lock undo`, and
+`matrix-lock restore REV` provide reversible configuration rollback, separate
+from installation rollback. `matrix-guide --lock` documents the full surface.
+
+Rendering differences are disclosed rather than hidden: the default
+`low-power` render mode fades trails continuously (one overlay pass per step)
+instead of the terminal's discrete fade levels, and skips mutation flashes;
+`matrix-lock set render-mode quality` restores exact discrete fades at a
+higher CPU cost. Terminal previews approximate exact HEX colors with the
+nearest spectrum hue; the lock screen itself shows the exact color. The
+plugin suspends simulation when its window is hidden or when the render loop
+stops completing paints; measured on Plasma 6.7/Qt 6.11, greeter test windows
+keep painting during a plain DPMS-off, so the animation may continue at its
+configured low rate while displays are off until KWin unmaps the lock
+surfaces.
+
+The plugin never touches KScreenLocker, PAM, SDDM, or password entry; it is
+wallpaper only, configured through `kscreenlockerrc` and rendered by the
+stock KDE greeter.
 
 ## Saver and KDE security behavior
 

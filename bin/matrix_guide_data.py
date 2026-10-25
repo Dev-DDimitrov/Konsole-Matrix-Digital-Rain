@@ -17,9 +17,29 @@ COMMANDS = (
     ("matrix-saver", "Run the idle-aware visual and secure saver controller."),
     ("matrix-settings", "Show and atomically manage global Matrix defaults, background, settings_lock, and exit_guard."),
     ("matrix-preset", "List, save, show, rename, or delete local user visual presets."),
+    ("matrix-lock", "Configure the animated Matrix KDE lock-screen wallpaper (profile, hue, history, enable/disable)."),
     ("matrix-doctor", "Run read-only Fedora/KDE/Matrix diagnostics."),
     ("matrix-guide", "Show this command, option, and control reference."),
     ("matrix-help", "Alias for matrix-guide; accepts the same options."),
+)
+
+
+# Lock-screen workflow reference presented by matrix-guide --lock.
+LOCK_COMMANDS = (
+    ("matrix-lock configure", "live preview with normal Matrix controls; offers to save on exit"),
+    ("matrix-lock preview [--greeter]", "preview the profile; --greeter runs the real KDE greeter in safe testing mode"),
+    ("matrix-lock save [--from-last]", "save the profile; --from-last imports the latest effective terminal settings"),
+    ("matrix-lock show", "display the active lock-screen settings"),
+    ("matrix-lock set hue 270", "set an exact hue in degrees (0-359)"),
+    ("matrix-lock set color \"#8B5CF6\"", "set an exact HEX color or a named Matrix color"),
+    ("matrix-lock set color-cycle on|off", "enable or disable automatic hue cycling"),
+    ("matrix-lock capture-hue", "capture the hue most recently held with h in a Matrix session"),
+    ("matrix-lock preset list|apply NAME", "apply built-in or user Matrix presets to the lock profile"),
+    ("matrix-lock history", "list saved lock-screen revisions"),
+    ("matrix-lock undo", "restore the previous lock-screen revision"),
+    ("matrix-lock restore REV", "restore a specific revision from history"),
+    ("matrix-lock enable|disable", "activate the Matrix lock wallpaper or restore the previous one"),
+    ("matrix-lock status|doctor", "installation state and read-only diagnostics"),
 )
 
 

@@ -148,7 +148,8 @@ class FinalInteractionTests(unittest.TestCase):
         self.assertTrue({"b", "w", "Alt+Left / Alt+Right", "Ctrl+L", "p / P"}.issubset(controls))
         self.assertEqual([name for name, _ in matrix_guide_data.COMMANDS], [
             "matrix", "matrix-konsole", "matrix-full", "matrix-all", "matrix-preview",
-            "matrix-saver", "matrix-settings", "matrix-preset", "matrix-doctor", "matrix-guide",
+            "matrix-saver", "matrix-settings", "matrix-preset", "matrix-lock",
+            "matrix-doctor", "matrix-guide", "matrix-help",
         ])
         guide = guide_output("--full")
         for text in ("background", "75% -> 50% -> 25% -> 0%", "Alt+Left / Alt+Right", "Ctrl+L", "speed 96"):

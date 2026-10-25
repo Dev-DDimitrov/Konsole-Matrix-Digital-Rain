@@ -19,14 +19,18 @@ DRY_RUN=0
 
 RUNTIME_FILES=(
     matrix matrix-all matrix-doctor matrix-full matrix-guide matrix-help matrix-konsole
-    matrix-preset matrix-preview matrix-saver matrix-settings
+    matrix-lock matrix-preset matrix-preview matrix-saver matrix-settings
     unimatrix-fade unimatrix-fade-sync
     matrix_config.py matrix_cursor.py matrix_doctor.py matrix_guide.py
-    matrix_guide_data.py matrix_preset.py matrix_renderer.py matrix_saver.py
-    matrix_settings.py
+    matrix_guide_data.py matrix_lock.py matrix_lockscreen.py matrix_preset.py
+    matrix_renderer.py matrix_saver.py matrix_settings.py
 )
 KONSOLE_FILES=(Matrix.profile Matrix.colorscheme Matrix-Translucent.profile Matrix-Translucent.colorscheme)
 UNIT_FILE="matrix-saver.service"
+WALLPAPER_ID="io.github.devddimitrov.matrixrain"
+WALLPAPER_SOURCE="$PROJECT_ROOT/plasma/wallpapers/$WALLPAPER_ID"
+WALLPAPER_TARGET="$DATA_HOME/plasma/wallpapers/$WALLPAPER_ID"
+WALLPAPER_FILES=(metadata.json contents/config/main.xml contents/ui/main.qml contents/ui/config.qml)
 
 usage() {
     printf '%s\n' \
@@ -62,6 +66,9 @@ for name in "${KONSOLE_FILES[@]}"; do
 done
 [[ -f "$PROJECT_ROOT/config/config.toml.example" ]] || die "missing config/config.toml.example"
 [[ -f "$PROJECT_ROOT/systemd/$UNIT_FILE" ]] || die "missing systemd/$UNIT_FILE"
+for name in "${WALLPAPER_FILES[@]}"; do
+    [[ -f "$WALLPAPER_SOURCE/$name" && ! -L "$WALLPAPER_SOURCE/$name" ]] || die "missing or symlinked source file: plasma/wallpapers/$WALLPAPER_ID/$name"
+done
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$PROJECT_DATA_TARGET/install-backups/$STAMP"
@@ -70,7 +77,7 @@ INSTALLED_PATHS=()
 target_is_safe() {
     local path="$1"
     case "$path" in
-        "$BIN_TARGET"/*|"$KONSOLE_TARGET"/*|"$SYSTEMD_TARGET"/*) return 0 ;;
+        "$BIN_TARGET"/*|"$KONSOLE_TARGET"/*|"$SYSTEMD_TARGET"/*|"$WALLPAPER_TARGET"/*) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -106,6 +113,9 @@ for name in "${KONSOLE_FILES[@]}"; do
     backup_and_install "$PROJECT_ROOT/konsole/$name" "$KONSOLE_TARGET/$name" 644
 done
 backup_and_install "$PROJECT_ROOT/systemd/$UNIT_FILE" "$SYSTEMD_TARGET/$UNIT_FILE" 644
+for name in "${WALLPAPER_FILES[@]}"; do
+    backup_and_install "$WALLPAPER_SOURCE/$name" "$WALLPAPER_TARGET/$name" 644
+done
 
 if [[ -e "$CONFIG_TARGET/config.toml" ]]; then
     [[ -f "$CONFIG_TARGET/config.toml" && ! -L "$CONFIG_TARGET/config.toml" ]] || die "user config is not a regular file"

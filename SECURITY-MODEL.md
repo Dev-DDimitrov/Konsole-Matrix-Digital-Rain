@@ -12,6 +12,15 @@ identically.
 - `matrix-saver immediate` and `after` hand off to KDE through `loginctl`.
 - The optional user service is never enabled automatically by the installer.
 - The UI `exit_guard` is an input guard, not authentication or authorization.
+- The lock-screen integration is wallpaper-only: a Plasma wallpaper plugin
+  rendered by the stock KDE greeter. It never modifies KScreenLocker, PAM,
+  SDDM, password entry, or lock/unlock policy, captures no input, and runs no
+  project process while the screen is locked. `matrix-lock enable` records
+  the previous wallpaper plugin before changing `kscreenlockerrc`, and
+  `matrix-lock disable` restores it.
+- Lock-screen configuration values (colors, numbers, mode names) are
+  validated data written as literal KConfig keys; HEX colors and numeric
+  parameters are never treated as executable expressions.
 
 ## State and configuration
 

@@ -422,15 +422,8 @@ def reverse_cycle_direction():
 
 def nearest_cycle_phase(rgb):
     """Map a static direct palette color onto the nearest spectrum sample."""
-    best = 0.0
-    best_distance = float('inf')
-    for step in range(720):
-        phase = step / 720.0
-        from matrix_config import cycle_rgb
-        distance = sum((left - right) ** 2 for left, right in zip(cycle_rgb(phase), rgb))
-        if distance < best_distance:
-            best, best_distance = phase, distance
-    return best
+    from matrix_config import nearest_cycle_phase as shared_nearest
+    return shared_nearest(rgb)
 
 
 def effective_animation_time():
@@ -516,7 +509,11 @@ def toggle_hue_hold(status, sync):
     else:
         args.hue_hold_phase = current_phase()
         args.hue_hold = True
+        # Anchor so the held phase is also the recorded cycle_phase; this is
+        # what lets matrix-lock capture the exact visually selected hue.
+        anchor_cycle_phase(args.hue_hold_phase)
         message = 'Hue held'
+    record_effective_settings()
     status.show(message)
     if sync:
         sync.publish(status.enabled, message=message)

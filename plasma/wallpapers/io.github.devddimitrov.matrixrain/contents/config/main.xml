@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="FixedColor" type="String">
+      <label>Fixed rain color as #rrggbb (used when cycling is off)</label>
+      <default>#00ff00</default>
+    </entry>
+    <entry name="BackgroundColor" type="String">
+      <label>Background color as #rrggbb</label>
+      <default>#000000</default>
+    </entry>
+    <entry name="ColorCycle" type="Bool">
+      <label>Gradually cycle the rain hue through the Matrix spectrum</label>
+      <default>false</default>
+    </entry>
+    <entry name="CyclePhase" type="Double">
+      <label>Spectrum anchor phase (0.0-1.0) at CycleEpoch</label>
+      <default>0.0</default>
+    </entry>
+    <entry name="CyclePeriod" type="Double">
+      <label>Seconds for one full spectrum cycle</label>
+      <default>72.0</default>
+    </entry>
+    <entry name="CycleDirectionReverse" type="Bool">
+      <label>Cycle the spectrum in reverse</label>
+      <default>false</default>
+    </entry>
+    <entry name="CycleEpoch" type="Double">
+      <label>Unix time (seconds) when the phase anchor was saved; synchronizes all screens</label>
+      <default>0.0</default>
+    </entry>
+    <entry name="Speed" type="Int">
+      <label>Rainfall speed 1-100 (terminal-compatible pacing)</label>
+      <default>62</default>
+    </entry>
+    <entry name="Density" type="Int">
+      <label>Rainfall density 1-100</label>
+      <default>34</default>
+    </entry>
+    <entry name="TrailMin" type="Int">
+      <label>Minimum trail length in cells</label>
+      <default>14</default>
+    </entry>
+    <entry name="TrailMax" type="Int">
+      <label>Maximum trail length in cells</label>
+      <default>34</default>
+    </entry>
+    <entry name="FadeLevels" type="Int">
+      <label>Number of fade shades (3-6)</label>
+      <default>6</default>
+    </entry>
+    <entry name="WhiteHeadRate" type="Int">
+      <label>Percentage of streams with a bright white head</label>
+      <default>25</default>
+    </entry>
+    <entry name="MutationRate" type="Double">
+      <label>Per-cell character mutation percentage per step</label>
+      <default>0.2</default>
+    </entry>
+    <entry name="Flashers" type="Bool">
+      <label>Enable character mutation flashes</label>
+      <default>false</default>
+    </entry>
+    <entry name="Asynchronous" type="Bool">
+      <label>Give streams independent step timing</label>
+      <default>true</default>
+    </entry>
+    <entry name="FpsCap" type="Int">
+      <label>Maximum animation steps per second (low-power cap)</label>
+      <default>12</default>
+    </entry>
+    <entry name="ReducedMotion" type="Bool">
+      <label>Disable cycling, flashes, and mutation</label>
+      <default>false</default>
+    </entry>
+    <entry name="GlyphSize" type="Int">
+      <label>Glyph size in pixels</label>
+      <default>18</default>
+    </entry>
+    <entry name="RenderScale" type="Double">
+      <label>Internal raster resolution factor (lower is cheaper and softer)</label>
+      <default>0.5</default>
+    </entry>
+    <entry name="RenderMode" type="String">
+      <label>low-power: fade-overlay rendering; quality: exact discrete fade levels</label>
+      <default>low-power</default>
+    </entry>
+  </group>
+
+</kcfg>
