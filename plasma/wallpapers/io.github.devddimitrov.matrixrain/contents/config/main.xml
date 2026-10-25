@@ -36,19 +36,19 @@
     </entry>
     <entry name="Speed" type="Int">
       <label>Rainfall speed 1-100 (terminal-compatible pacing)</label>
-      <default>62</default>
+      <default>96</default>
     </entry>
     <entry name="Density" type="Int">
       <label>Rainfall density 1-100</label>
-      <default>34</default>
+      <default>52</default>
     </entry>
     <entry name="TrailMin" type="Int">
       <label>Minimum trail length in cells</label>
-      <default>14</default>
+      <default>16</default>
     </entry>
     <entry name="TrailMax" type="Int">
       <label>Maximum trail length in cells</label>
-      <default>34</default>
+      <default>38</default>
     </entry>
     <entry name="FadeLevels" type="Int">
       <label>Number of fade shades (3-6)</label>
@@ -60,7 +60,7 @@
     </entry>
     <entry name="MutationRate" type="Double">
       <label>Per-cell character mutation percentage per step</label>
-      <default>0.2</default>
+      <default>0.8</default>
     </entry>
     <entry name="Flashers" type="Bool">
       <label>Enable character mutation flashes</label>
@@ -71,8 +71,8 @@
       <default>true</default>
     </entry>
     <entry name="FpsCap" type="Int">
-      <label>Maximum animation steps per second (low-power cap)</label>
-      <default>12</default>
+      <label>Maximum animation steps per second</label>
+      <default>30</default>
     </entry>
     <entry name="ReducedMotion" type="Bool">
       <label>Disable cycling, flashes, and mutation</label>
@@ -83,12 +83,12 @@
       <default>18</default>
     </entry>
     <entry name="RenderScale" type="Double">
-      <label>Internal raster resolution factor (lower is cheaper and softer)</label>
-      <default>0.5</default>
+      <label>Canvas-backend raster resolution factor (lower is cheaper and softer)</label>
+      <default>1.0</default>
     </entry>
     <entry name="RenderMode" type="String">
-      <label>low-power: fade-overlay rendering; quality: exact discrete fade levels</label>
-      <default>low-power</default>
+      <label>auto: GPU shader (recommended); quality: exact-fade canvas; low-power: fade-overlay canvas</label>
+      <default>auto</default>
     </entry>
   </group>
 

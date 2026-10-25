@@ -54,29 +54,50 @@ KSCREENLOCKERRC = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"
 
 DEFAULT_LOCK_WALLPAPER_PLUGIN = "org.kde.image"
 
-# Low-power public defaults. Deliberately independent from the terminal
-# profile defaults in matrix_config.DEFAULTS.
+# Balanced public defaults: terminal-parity pacing and visuals on the GPU
+# shader backend. Deliberately independent from the terminal profile
+# defaults in matrix_config.DEFAULTS.
 LOCK_DEFAULTS = {
     "color": "green",            # named Matrix color or "#rrggbb"
     "cycle_phase": 0.0,          # spectrum anchor, 0.0-1.0
     "color_cycle": False,
     "cycle_period": 72.0,
     "cycle_direction": "forward",
-    "speed": 62,
-    "density": 34,
-    "trail_min": 14,
-    "trail_max": 34,
+    "speed": 96,
+    "density": 52,
+    "trail_min": 16,
+    "trail_max": 38,
     "fade_levels": 6,
     "white_head_rate": 25,
-    "mutation_rate": 0.2,
+    "mutation_rate": 0.8,
     "flashers": False,
     "asynchronous": True,
     "background": "#000000",     # lock background is always a direct color
-    "fps_cap": 12,
+    "fps_cap": 30,
     "reduced_motion": False,
     "glyph_size": 18,
-    "render_scale": 0.5,
-    "render_mode": "low-power",
+    "render_scale": 1.0,
+    "render_mode": "auto",
+}
+
+# Rendering/pacing bundles for `matrix-lock quality NAME`. They never touch
+# color, cycling, background, white heads, or glyph size.
+QUALITY_PRESETS = {
+    "balanced": {
+        "render_mode": "auto", "fps_cap": 30, "speed": 96, "density": 52,
+        "trail_min": 16, "trail_max": 38, "mutation_rate": 0.8,
+        "flashers": False, "render_scale": 1.0,
+    },
+    "high": {
+        "render_mode": "auto", "fps_cap": 60, "speed": 98, "density": 52,
+        "trail_min": 16, "trail_max": 38, "mutation_rate": 0.8,
+        "flashers": True, "render_scale": 1.0,
+    },
+    "battery": {
+        "render_mode": "low-power", "fps_cap": 12, "speed": 62, "density": 34,
+        "trail_min": 14, "trail_max": 34, "mutation_rate": 0.2,
+        "flashers": False, "render_scale": 0.5,
+    },
 }
 
 # Terminal background modes approximated as direct lock-screen colors.
@@ -138,8 +159,8 @@ def validate(values):
         merged["glyph_size"] = int(clamp(int(merged["glyph_size"]), 10, 72))
         merged["render_scale"] = float(clamp(float(merged["render_scale"]), 0.25, 1.0))
         merged["render_mode"] = str(merged["render_mode"]).lower()
-        if merged["render_mode"] not in ("low-power", "quality"):
-            raise ConfigError("render_mode must be low-power or quality")
+        if merged["render_mode"] not in ("auto", "quality", "low-power"):
+            raise ConfigError("render_mode must be auto, quality, or low-power")
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"invalid lock-screen value: {exc}") from exc
     if merged["reduced_motion"]:
@@ -378,6 +399,17 @@ def _preset_touches(preset, lock_key):
 
 def import_last_effective():
     return from_terminal_values(load_last_effective())
+
+
+def apply_quality(values, name):
+    """Overlay a rendering/pacing quality preset; visual identity untouched."""
+    canonical = str(name).strip().lower()
+    preset = QUALITY_PRESETS.get(canonical)
+    if preset is None:
+        raise ConfigError(f"unknown quality preset: {name} (choose from: {', '.join(QUALITY_PRESETS)})")
+    merged = dict(values)
+    merged.update(preset)
+    return validate(merged), canonical
 
 
 # ---------------------------------------------------------------------------

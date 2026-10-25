@@ -4,17 +4,28 @@
 
     Matrix Digital Rain wallpaper for Plasma 6 (lock screen and desktop).
 
-    This is a QML/Canvas port of the project's terminal renderer simulation
+    The simulation is a faithful port of the project's terminal renderer
     (bin/matrix_renderer.py). Every screen runs its own independent rainfall
-    instance; the hue is a pure function of wall-clock time and the exported
+    instance; hue is a pure function of wall-clock time and the exported
     CyclePhase/CycleEpoch anchor, so all screens stay color-synchronized
     without any IPC or daemon.
 
-    Power behavior: the simulation is driven by a timer paced exactly like the
-    terminal renderer (max(1000/fpsCap, (100-speed)*10) ms). If the compositor
-    stops delivering frames (display off / fully occluded), paint callbacks
-    stop; after a few missed paints the simulation suspends and only a cheap
-    5-second probe remains until painting resumes.
+    Rendering backends (RenderMode):
+      - "auto" (default): GPU ShaderEffect. The CPU uploads a tiny per-cell
+        state texture (R = glyph index, G = color level) plus a one-time
+        single-row atlas of white glyphs; the fragment shader paints every
+        cell at native resolution with exact discrete fade levels. Falls
+        back to the quality canvas if the shader cannot compile.
+      - "quality": Canvas renderer repainting every cell per step.
+      - "low-power": Canvas fade-overlay renderer (cheapest, soft trails).
+
+    Power behavior: simulation progress is gated on actual frame
+    presentation. Each step produces a frame; QQuickWindow.frameSwapped is
+    the heartbeat. When the compositor stops presenting (display DPMS off,
+    surface unmapped), swaps stop, the simulation suspends, and only a slow
+    probe commit remains so the first presented frame after wake resumes
+    the rain. Hue stays synchronized across suspend/resume because it is
+    wall-clock based.
 */
 
 import QtQuick
@@ -44,22 +55,40 @@ WallpaperItem {
     readonly property bool asynchronous: root.configuration.Asynchronous
     readonly property int fpsCap: Math.max(1, Math.min(60, root.configuration.FpsCap))
     readonly property int glyphSize: Math.max(10, Math.min(72, root.configuration.GlyphSize))
-    // The canvas rasters at a reduced internal resolution and the scene graph
-    // scales the texture up; this is the main CPU lever of the renderer.
-    readonly property real renderScale: Math.max(0.25, Math.min(1.0, root.configuration.RenderScale || 0.5))
+    readonly property real renderScale: Math.max(0.25, Math.min(1.0, root.configuration.RenderScale || 1.0))
+    readonly property string renderMode: String(root.configuration.RenderMode)
 
+    // Terminal-compatible pacing: speed dominates below ~92, fps cap above.
     readonly property int stepInterval: Math.max(Math.round(1000 / fpsCap), (100 - speed) * 10)
+
+    property bool shaderFailed: false
+    readonly property string backend: renderMode === "quality" ? "canvas-quality"
+        : renderMode === "low-power" ? "canvas-lowpower"
+        : (shaderFailed ? "canvas-quality" : "shader")
+
+    readonly property real pitchXBase: Math.round(glyphSize * 1.35)
+    readonly property real pitchYBase: Math.round(glyphSize * 1.15)
 
     // ---- simulation + palette state (plain JS, owned by this instance) -----
     property var columns: []
     property int frame: 0
     property int rows: 0
     property int cols: 0
-    property int paintSerial: 0
-    property int requestSerial: 0
     property bool suspended: false
+    property double lastSwapMs: 0
+    property double lastStepMs: 0
     property var trailColors: []
     property string trailKey: ""
+    property bool needsFullClear: true
+
+    // Shader uniforms (bound by name into the fragment shader's UBO).
+    property color ramp0: "#00ff00"
+    property color ramp1: "#00d400"
+    property color ramp2: "#00a300"
+    property color ramp3: "#007700"
+    property color ramp4: "#004d00"
+    property color ramp5: "#002900"
+    property color headTint: "#ffffff"
 
     // Weighted selection string (same weighting as the terminal renderer)
     // and its unique alphabet used as glyph-atlas columns.
@@ -81,10 +110,6 @@ WallpaperItem {
     }
 
     readonly property int fontPx: Math.max(5, Math.round(glyphSize * renderScale))
-    // "low-power" renders only newly advanced heads plus one fade overlay per
-    // step (constant cost); "quality" repaints every cell with exact discrete
-    // fade levels like the terminal renderer, at a higher CPU cost.
-    readonly property bool qualityMode: String(root.configuration.RenderMode) === "quality"
 
     // Spectrum waypoints identical to matrix_config.CYCLE_WAYPOINTS.
     readonly property var cycleWaypoints: [
@@ -179,6 +204,11 @@ WallpaperItem {
         return ((phase % 1) + 1) % 1
     }
 
+    function headColorCss() {
+        const bg = parseHex(backgroundColor)
+        return (bg[0] + bg[1] + bg[2]) > 600 ? "#000000" : "#ffffff"
+    }
+
     function updateTrailColors() {
         let base, key
         if (colorCycle) {
@@ -191,8 +221,24 @@ WallpaperItem {
             if (key === trailKey) return
             base = parseHex(fixedColor)
         }
-        trailColors = rampRgb(base, fadeLevels).map(cssRgb)
+        const ramp = rampRgb(base, fadeLevels)
+        trailColors = ramp.map(cssRgb)
         trailKey = key
+        // Mirror into the shader uniforms; unused slots repeat the darkest.
+        const uniforms = [ramp0, ramp1, ramp2, ramp3, ramp4, ramp5]
+        for (let i = 0; i < 6; ++i) {
+            const rgb = ramp[Math.min(i, ramp.length - 1)]
+            const value = Qt.rgba(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, 1)
+            switch (i) {
+            case 0: ramp0 = value; break
+            case 1: ramp1 = value; break
+            case 2: ramp2 = value; break
+            case 3: ramp3 = value; break
+            case 4: ramp4 = value; break
+            default: ramp5 = value; break
+            }
+        }
+        headTint = headColorCss()
     }
 
     // ---- simulation (port of Stream/Column in matrix_renderer.py) ----------
@@ -203,7 +249,7 @@ WallpaperItem {
             head: -Math.floor(Math.random() * Math.max(1, Math.floor(length / 2)) + 1),
             stepEvery: asynchronous ? 1 + Math.floor(Math.random() * 3) : 1,
             whiteHead: Math.random() * 100 < whiteHeadRate,
-            cells: [],      // ring of {y, glyph}
+            cells: [],      // ordered {y, glyph(unique atlas index)}
             done: false
         }
     }
@@ -214,13 +260,9 @@ WallpaperItem {
         return Math.max(1, Math.floor(maxGap / 5)) + Math.floor(Math.random() * Math.max(1, maxGap - maxGap / 5))
     }
 
-    property bool needsFullClear: true
-
     function rebuild() {
-        const pitchX = Math.round(glyphSize * 1.35)
-        const pitchY = Math.round(glyphSize * 1.15)
-        cols = Math.max(1, Math.floor(width / pitchX))
-        rows = Math.max(1, Math.ceil(height / pitchY))
+        cols = Math.max(1, Math.floor(width / pitchXBase))
+        rows = Math.max(1, Math.ceil(height / pitchYBase))
         const next = []
         for (let x = 0; x < cols; ++x)
             next.push({ x: x, stream: null, cooldown: newCooldown(true), paintedStream: null, paintedHead: 0 })
@@ -256,7 +298,7 @@ WallpaperItem {
         const stream = column.stream
         if (frame % stream.stepEvery === 0)
             advanceStream(stream)
-        if (flashers && mutationRate > 0 && qualityMode) {
+        if (flashers && mutationRate > 0 && backend !== "canvas-lowpower") {
             for (let i = 0; i < stream.cells.length; ++i)
                 if (Math.random() < mutationRate / 100.0)
                     stream.cells[i].glyph = randomGlyph()
@@ -268,18 +310,38 @@ WallpaperItem {
     }
 
     function tick() {
-        // Display-off suspension: when the compositor stops scheduling
-        // frames (output off), requested paints never complete; back off
-        // once several requests are outstanding and let the probe resume us.
-        if (requestSerial - paintSerial > 5) {
+        const now = Date.now()
+        // Presentation heartbeat: when the compositor stops completing
+        // frames (display off / surface unmapped), stop simulating. The
+        // probe timer below keeps a slow commit alive so the first
+        // presented frame after wake resumes the rain.
+        if (lastSwapMs > 0 && now - lastSwapMs > Math.max(4 * stepInterval, 1500)) {
             suspended = true
             return
         }
-        for (let i = 0; i < columns.length; ++i)
-            tickColumn(columns[i])
-        frame = (frame + 1) % 600000
-        requestSerial += 1
-        canvas.requestPaint()
+        // Elapsed-time stepping smooths timer jitter without large jumps.
+        let steps = 1
+        if (lastStepMs > 0)
+            steps = Math.max(1, Math.min(3, Math.round((now - lastStepMs) / stepInterval)))
+        lastStepMs = now
+        for (let s = 0; s < steps; ++s) {
+            for (let i = 0; i < columns.length; ++i)
+                tickColumn(columns[i])
+            frame = (frame + 1) % 600000
+        }
+        updateTrailColors()
+        if (backend === "shader")
+            stateCanvas.requestPaint()
+        else
+            canvas.requestPaint()
+    }
+
+    function resumeFromSwap() {
+        lastSwapMs = Date.now()
+        if (suspended) {
+            suspended = false
+            lastStepMs = 0
+        }
     }
 
     onWidthChanged: rebuild()
@@ -287,11 +349,19 @@ WallpaperItem {
     onGlyphSizeChanged: rebuild()
     onDensityChanged: rebuild()
     onRenderScaleChanged: rebuild()
-    Component.onCompleted: rebuild()
+    Component.onCompleted: {
+        lastSwapMs = Date.now()
+        rebuild()
+    }
 
-    function headColorCss() {
-        const bg = parseHex(backgroundColor)
-        return (bg[0] + bg[1] + bg[2]) > 600 ? "#000000" : "#ffffff"
+    Connections {
+        target: root.Window.window
+        function onFrameSwapped() { root.resumeFromSwap() }
+    }
+
+    readonly property bool windowVisible: {
+        const visibility = root.Window.visibility
+        return visibility !== Window.Hidden && visibility !== Window.Minimized
     }
 
     Rectangle {
@@ -299,8 +369,157 @@ WallpaperItem {
         color: root.backgroundColor
     }
 
+    // ======================= GPU shader backend ==============================
+
+    // One-time atlas: every unique glyph rendered white-on-transparent in a
+    // single row, at devicePixelRatio resolution so glyphs stay sharp on
+    // scaled displays. Color is applied in the shader, so hue cycling never
+    // rebuilds this atlas.
+    Canvas {
+        id: atlasCanvas
+        // Kept "visible" but hidden through ShaderEffectSource.hideSource,
+        // the documented pattern that guarantees the texture stays rendered.
+        readonly property real dpr: Math.max(1, Screen.devicePixelRatio)
+        width: Math.max(1, Math.round(root.glyphTable.unique.length * root.pitchXBase * dpr))
+        height: Math.max(1, Math.round(root.pitchYBase * dpr))
+        renderStrategy: Canvas.Threaded
+
+        onPaint: {
+            const ctx = getContext("2d")
+            ctx.clearRect(0, 0, width, height)
+            ctx.fillStyle = "#ffffff"
+            ctx.font = Math.round(root.glyphSize * dpr) + "px monospace"
+            ctx.textBaseline = "top"
+            const unique = root.glyphTable.unique
+            const cell = root.pitchXBase * dpr
+            for (let g = 0; g < unique.length; ++g)
+                ctx.fillText(unique[g], g * cell, 0)
+        }
+        Component.onCompleted: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+    }
+
+    // Per-cell state image: one 2x2 pixel block per cell (R = glyph index,
+    // G = level code). The 2x2 block plus nearest filtering makes the values
+    // robust against any devicePixelRatio resampling of the canvas.
+    Canvas {
+        id: stateCanvas
+        width: Math.max(2, root.cols * 2)
+        height: Math.max(2, root.rows * 2)
+        renderStrategy: Canvas.Threaded
+        property var image: null
+        property var touched: []
+
+        onPaint: {
+            if (root.backend !== "shader")
+                return
+            const ctx = getContext("2d")
+            if (image === null || image.width !== width || image.height !== height) {
+                image = ctx.createImageData(width, height)
+                touched = []
+            }
+            const data = image.data
+            const rowStride = width * 4
+            // Clear only the cells written last frame (CanvasImageData has
+            // no TypedArray.fill); a fresh createImageData starts zeroed.
+            const previous = touched
+            for (let t = 0; t < previous.length; ++t) {
+                const base = previous[t]
+                data[base + 1] = 0
+                data[base + 5] = 0
+                data[base + rowStride + 1] = 0
+                data[base + rowStride + 5] = 0
+            }
+            const written = []
+            const columnList = root.columns
+            const levels = root.fadeLevels
+            for (let i = 0; i < columnList.length; ++i) {
+                const stream = columnList[i].stream
+                if (stream === null)
+                    continue
+                const x2 = columnList[i].x * 2
+                for (let c = 0; c < stream.cells.length; ++c) {
+                    const cell = stream.cells[c]
+                    if (cell.y < 0 || cell.y >= root.rows)
+                        continue
+                    const distance = Math.max(0, stream.head - cell.y)
+                    let level
+                    if (distance === 0 && stream.whiteHead)
+                        level = 7
+                    else {
+                        const ratio = Math.min(1.0, distance / Math.max(1, stream.length - 1))
+                        level = 1 + Math.min(levels - 1, Math.floor(ratio * levels))
+                    }
+                    const base = (cell.y * 2) * rowStride + x2 * 4
+                    for (let dy = 0; dy < 2; ++dy) {
+                        const offset = base + dy * rowStride
+                        data[offset] = cell.glyph
+                        data[offset + 1] = level
+                        data[offset + 3] = 255
+                        data[offset + 4] = cell.glyph
+                        data[offset + 5] = level
+                        data[offset + 7] = 255
+                    }
+                    written.push(base)
+                }
+            }
+            touched = written
+            ctx.putImageData(image, 0, 0)
+        }
+    }
+
+    ShaderEffectSource {
+        id: atlasSource
+        visible: false
+        sourceItem: atlasCanvas
+        hideSource: true
+        live: true
+        smooth: false
+    }
+
+    ShaderEffectSource {
+        id: stateSource
+        visible: false
+        sourceItem: stateCanvas
+        hideSource: true
+        live: true
+        smooth: false
+        textureSize: Qt.size(stateCanvas.width, stateCanvas.height)
+    }
+
+    ShaderEffect {
+        id: rainShader
+        visible: root.backend === "shader"
+        x: 0; y: 0
+        width: root.cols * root.pitchXBase
+        height: root.rows * root.pitchYBase
+        fragmentShader: Qt.resolvedUrl("../shaders/rain.frag.qsb")
+
+        property color ramp0: root.ramp0
+        property color ramp1: root.ramp1
+        property color ramp2: root.ramp2
+        property color ramp3: root.ramp3
+        property color ramp4: root.ramp4
+        property color ramp5: root.ramp5
+        property color headTint: root.headTint
+        property var grid: Qt.vector4d(root.cols, root.rows, root.glyphTable.unique.length, 0)
+        property var stateTex: stateSource
+        property var atlasTex: atlasSource
+
+        onStatusChanged: {
+            if (status === ShaderEffect.Error) {
+                console.warn("matrixrain: shader backend failed, falling back to canvas:", log)
+                root.shaderFailed = true
+            }
+        }
+    }
+
+    // ======================= Canvas fallback backends ========================
+
     Canvas {
         id: canvas
+        visible: root.backend !== "shader"
         width: Math.max(1, Math.round(root.width * root.renderScale))
         height: Math.max(1, Math.round(root.height * root.renderScale))
         transformOrigin: Item.TopLeft
@@ -308,33 +527,29 @@ WallpaperItem {
         smooth: true
         // Threaded is the one strategy whose requestPaint() reliably repaints
         // on Qt 6.11 (Immediate paints only once; verified on this stack).
-        // The onPaint handler records 2D commands on the GUI thread, so the
-        // suspension bookkeeping below is safe; rasterization happens on the
-        // canvas worker thread.
         renderStrategy: Canvas.Threaded
 
         onPaint: {
-            root.paintSerial = root.requestSerial
-            if (root.suspended)
-                root.suspended = false
+            if (root.backend === "shader")
+                return
             const ctx = getContext("2d")
             root.updateTrailColors()
             const colors = root.trailColors
             if (colors.length === 0)
                 return
             const factor = root.renderScale
-            const pitchX = Math.round(root.glyphSize * 1.35) * factor
-            const pitchY = Math.round(root.glyphSize * 1.15) * factor
+            const pitchX = root.pitchXBase * factor
+            const pitchY = root.pitchYBase * factor
             const unique = root.glyphTable.unique
             const columnList = root.columns
             ctx.font = root.fontPx + "px monospace"
             ctx.textBaseline = "top"
-            if (root.needsFullClear || root.qualityMode) {
+            if (root.needsFullClear || root.backend === "canvas-quality") {
                 ctx.clearRect(0, 0, width, height)
                 root.needsFullClear = false
             }
 
-            if (root.qualityMode) {
+            if (root.backend === "canvas-quality") {
                 // Exact terminal look: every visible cell is repainted with
                 // its discrete fade level, bucketed to minimize state changes.
                 const buckets = []
@@ -417,16 +632,15 @@ WallpaperItem {
         }
     }
 
-    // The window-visibility gate stops all simulation work when the
-    // compositor hides or unmaps this surface. The outstanding-paint gate is
-    // a safety net for render loops that stop completing paints. Measured
-    // limitation: in greeter --testing mode with DPMS off, Qt falls back to
-    // timer-driven rendering and paints keep completing, so neither gate
-    // fires there; behavior under a real session lock depends on KWin
-    // unmapping the lock surfaces.
-    readonly property bool windowVisible: {
-        const visibility = root.Window.visibility
-        return visibility !== Window.Hidden && visibility !== Window.Minimized
+    // Near-invisible probe pixel: while suspended, a slow toggle keeps one
+    // pending commit alive so the compositor's first presented frame after
+    // display wake delivers a frameSwapped heartbeat and resumes the rain.
+    // (A fully transparent item would produce no scene-graph node at all.)
+    Rectangle {
+        id: probePixel
+        width: 1; height: 1
+        color: Qt.rgba(0, 0, 0, 0.004)
+        x: 0
     }
 
     Timer {
@@ -442,6 +656,6 @@ WallpaperItem {
         interval: 5000
         repeat: true
         running: root.suspended
-        onTriggered: canvas.requestPaint()
+        onTriggered: probePixel.x = probePixel.x === 0 ? 1 : 0
     }
 }

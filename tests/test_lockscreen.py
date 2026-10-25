@@ -42,13 +42,34 @@ class Isolated(unittest.TestCase):
 
 
 class ValidationTests(Isolated):
-    def test_defaults_are_valid_and_low_power(self):
+    def test_defaults_are_valid_and_balanced(self):
         values = lock.validate({})
         self.assertEqual(values["color"], "green")
         self.assertFalse(values["color_cycle"])
         self.assertFalse(values["flashers"])
-        self.assertLessEqual(values["fps_cap"], 15)
+        self.assertEqual(values["render_mode"], "auto")
+        self.assertLessEqual(values["fps_cap"], 30)
+        self.assertEqual(values["speed"], 96)
         self.assertEqual(values["white_head_rate"], 25)
+
+    def test_quality_presets_do_not_touch_visual_identity(self):
+        base = lock.validate({"color": "#8b5cf6", "cycle_phase": 0.42,
+                              "color_cycle": True, "glyph_size": 24,
+                              "white_head_rate": 50, "background": "#303030"})
+        for name in ("balanced", "high", "battery"):
+            values, canonical = lock.apply_quality(base, name)
+            self.assertEqual(canonical, name)
+            self.assertEqual(values["color"], "#8b5cf6")
+            self.assertAlmostEqual(values["cycle_phase"], 0.42)
+            self.assertTrue(values["color_cycle"])
+            self.assertEqual(values["glyph_size"], 24)
+            self.assertEqual(values["white_head_rate"], 50)
+            self.assertEqual(values["background"], "#303030")
+        battery, _ = lock.apply_quality(base, "battery")
+        self.assertEqual(battery["render_mode"], "low-power")
+        self.assertLessEqual(battery["fps_cap"], 12)
+        with self.assertRaises(config.ConfigError):
+            lock.apply_quality(base, "ultra")
 
     def test_unknown_keys_and_bad_values_are_rejected(self):
         with self.assertRaises(config.ConfigError):

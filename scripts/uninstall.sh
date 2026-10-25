@@ -88,6 +88,7 @@ if (( ! DRY_RUN )); then
     rm -f -- "$MANIFEST"
     rmdir -- "$PROJECT_DATA_TARGET" 2>/dev/null || true
     for directory in "$WALLPAPER_TARGET/contents/ui" "$WALLPAPER_TARGET/contents/config" \
+        "$WALLPAPER_TARGET/contents/shaders" \
         "$WALLPAPER_TARGET/contents" "$WALLPAPER_TARGET" \
         "$BIN_TARGET" "$KONSOLE_TARGET" "$SYSTEMD_TARGET"; do
         rmdir -- "$directory" 2>/dev/null || true

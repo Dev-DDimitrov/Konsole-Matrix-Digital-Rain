@@ -186,6 +186,21 @@ def cmd_configure(_args):
     return 0
 
 
+def cmd_quality(args):
+    if args.name is None:
+        values = lock.load_profile()
+        print(f"render_mode = {values['render_mode']} | fps_cap = {values['fps_cap']} | "
+              f"speed = {values['speed']} | density = {values['density']} | "
+              f"flashers = {values['flashers']} | render_scale = {values['render_scale']}")
+        print("Presets: balanced (default; smooth GPU rendering), high (60 FPS cap + flashes),")
+        print("         battery (low-power canvas, soft trails, 12 FPS cap)")
+        return 0
+    values, canonical = lock.apply_quality(lock.load_profile(), args.name)
+    print(f"applied quality preset: {canonical} (colors and hue settings untouched)")
+    _save(values, note=f"matrix-lock quality {canonical}")
+    return 0
+
+
 def cmd_preset(args):
     if args.preset_command == "list":
         print("BUILT-IN PRESETS")
@@ -314,6 +329,8 @@ def main():
     setter.add_argument("key")
     setter.add_argument("value")
     sub.add_parser("capture-hue", help="capture the most recently held hue from a Matrix session")
+    quality = sub.add_parser("quality", help="show or apply a rendering quality preset (balanced/high/battery)")
+    quality.add_argument("name", nargs="?", default=None)
     preset = sub.add_parser("preset", help="list or apply Matrix presets to the lock profile")
     preset_sub = preset.add_subparsers(dest="preset_command", required=True)
     preset_sub.add_parser("list")
@@ -331,6 +348,7 @@ def main():
     handlers = {
         "configure": cmd_configure, "preview": cmd_preview, "save": cmd_save,
         "show": cmd_show, "set": cmd_set, "capture-hue": cmd_capture_hue,
+        "quality": cmd_quality,
         "preset": cmd_preset, "history": cmd_history, "undo": cmd_undo,
         "restore": cmd_restore, "enable": cmd_enable, "disable": cmd_disable,
         "status": cmd_status, "doctor": cmd_doctor,

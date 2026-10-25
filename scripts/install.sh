@@ -30,7 +30,7 @@ UNIT_FILE="matrix-saver.service"
 WALLPAPER_ID="io.github.devddimitrov.matrixrain"
 WALLPAPER_SOURCE="$PROJECT_ROOT/plasma/wallpapers/$WALLPAPER_ID"
 WALLPAPER_TARGET="$DATA_HOME/plasma/wallpapers/$WALLPAPER_ID"
-WALLPAPER_FILES=(metadata.json contents/config/main.xml contents/ui/main.qml contents/ui/config.qml)
+WALLPAPER_FILES=(metadata.json contents/config/main.xml contents/ui/main.qml contents/ui/config.qml contents/shaders/rain.frag.qsb)
 
 usage() {
     printf '%s\n' \
