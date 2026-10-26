@@ -23,7 +23,7 @@ RUNTIME_FILES=(
     unimatrix-fade unimatrix-fade-sync
     matrix_config.py matrix_cursor.py matrix_doctor.py matrix_guide.py
     matrix_guide_data.py matrix_lock.py matrix_lockscreen.py matrix_preset.py
-    matrix_renderer.py matrix_saver.py matrix_settings.py
+    matrix_renderer.py matrix_resource_guard.py matrix_saver.py matrix_settings.py
 )
 KONSOLE_FILES=(Matrix.profile Matrix.colorscheme Matrix-Translucent.profile Matrix-Translucent.colorscheme)
 UNIT_FILE="matrix-saver.service"
