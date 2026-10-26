@@ -31,15 +31,25 @@ the secure KDE lock screen is authoritative.
 ## Lock-screen wallpaper
 
 The animated lock screen is a Plasma 6 QML wallpaper plugin installed to the
-user wallpaper location. It renders with a Canvas per screen; each instance
-simulates its own rainfall while hue is a pure function of wall-clock time and
-the exported phase anchor, so screens stay synchronized without IPC. The
-`matrix-lock` CLI owns the canonical profile (`lockscreen.toml`), a bounded
-revision history, and the one-way export that compiles the profile into the
-plugin's KConfig group in `kscreenlockerrc`. No project process runs while the
-screen is locked; the stock KDE greeter reads the exported configuration. The
-default low-power render mode paints one fade overlay plus newly advanced
-glyph heads per step and suspends when frame delivery stalls (displays off).
+user wallpaper location. Each screen's instance simulates its own rainfall
+while hue is a pure function of wall-clock time and the exported phase anchor,
+so screens stay synchronized without IPC. The `matrix-lock` CLI owns the
+canonical profile (`lockscreen.toml`), a bounded revision history, and the
+one-way export that compiles the profile into the plugin's KConfig group in
+`kscreenlockerrc`. No project process runs while the screen is locked; the
+stock KDE greeter reads the exported configuration.
+
+The default `auto` render mode draws through a GPU fragment shader: a Canvas
+rasterizes a one-row white glyph atlas once, a second tiny Canvas encodes
+per-cell state (R = glyph index, G = fade level) as 2x2 pixel blocks via
+fillRect draw ops (putImageData does not reach a threaded Canvas texture on
+Qt 6.11), and the baked `.qsb` shader composites atlas and state with the
+exported color ramp, so hue cycling never rebuilds the atlas. Canvas
+fallbacks (`quality` discrete-fade fillText, `low-power` fade overlay) remain
+selectable and are used automatically if shader compilation fails. Simulation
+gates on the window's frameSwapped presentation heartbeat: when the
+compositor stops completing frames (displays off), stepping stops within
+~1.5 s at 0.0% measured CPU and resumes on the first presented frame.
 
 ## Installation state
 

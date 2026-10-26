@@ -117,8 +117,10 @@ its windows while each display continues its own rain simulation.
 KDE's real lock screen. Every monitor runs its own independent rainfall while
 color and hue cycling stay synchronized across displays through a shared
 wall-clock phase. The lock-screen profile is fully independent from the
-terminal profile and defaults to conservative low-power values
-(12 FPS cap, ambient speed, 25% white heads, flashes off).
+terminal profile and defaults to the `balanced` quality preset: a GPU shader
+renderer stepping at terminal pace (speed 96, 30 FPS cap, 25% white heads,
+flashes off). `matrix-lock quality balanced|high|battery` switches the
+rendering bundle without touching colors or hue settings.
 
 The core workflow:
 
@@ -134,17 +136,20 @@ history: `matrix-lock history`, `matrix-lock undo`, and
 `matrix-lock restore REV` provide reversible configuration rollback, separate
 from installation rollback. `matrix-guide --lock` documents the full surface.
 
-Rendering differences are disclosed rather than hidden: the default
-`low-power` render mode fades trails continuously (one overlay pass per step)
-instead of the terminal's discrete fade levels, and skips mutation flashes;
-`matrix-lock set render-mode quality` restores exact discrete fades at a
-higher CPU cost. Terminal previews approximate exact HEX colors with the
-nearest spectrum hue; the lock screen itself shows the exact color. The
-plugin suspends simulation when its window is hidden or when the render loop
-stops completing paints; measured on Plasma 6.7/Qt 6.11, greeter test windows
-keep painting during a plain DPMS-off, so the animation may continue at its
-configured low rate while displays are off until KWin unmaps the lock
-surfaces.
+Rendering differences are disclosed rather than hidden: the default `auto`
+render mode draws through a GPU fragment shader (a white glyph atlas plus a
+per-cell state texture) with the terminal's exact discrete fade levels, and
+falls back to a Canvas renderer if shader compilation fails;
+`matrix-lock set render-mode low-power` selects a cheaper Canvas path that
+fades trails continuously and skips mutation flashes. Terminal previews
+approximate exact HEX colors with the nearest spectrum hue; the lock screen
+itself shows the exact color. Simulation and rendering gate on the window's
+frame-presentation heartbeat (`frameSwapped`): when the compositor stops
+completing frames for a display — DPMS off, lid closed, or the surface
+unmapped — that monitor's rain stops stepping within about 1.5 seconds and
+resumes automatically on the first presented frame after wake. Measured on
+Plasma 6.7/Qt 6.11 across a DPMS off/on cycle, greeter CPU drops from ~30%
+of one core (three displays, balanced) to 0.0% while displays are off.
 
 The plugin never touches KScreenLocker, PAM, SDDM, or password entry; it is
 wallpaper only, configured through `kscreenlockerrc` and rendered by the

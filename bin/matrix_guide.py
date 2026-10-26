@@ -85,8 +85,8 @@ def saver():
 def lockscreen():
     heading("Lock screen")
     print("The KDE lock screen can show live Matrix rain as its wallpaper, with an")
-    print("independent low-power profile. Every monitor rains independently while the")
-    print("hue stays synchronized. KDE authentication is never modified.")
+    print("independent profile and GPU-rendered terminal-pace rain. Every monitor rains")
+    print("independently while the hue stays synchronized. KDE authentication is never modified.")
     print("")
     for command, description in LOCK_COMMANDS:
         print(f"{command:<38} {description}")

@@ -35,6 +35,7 @@ LOCK_COMMANDS = (
     ("matrix-lock set color-cycle on|off", "enable or disable automatic hue cycling"),
     ("matrix-lock capture-hue", "capture the hue most recently held with h in a Matrix session"),
     ("matrix-lock preset list|apply NAME", "apply built-in or user Matrix presets to the lock profile"),
+    ("matrix-lock quality [NAME]", "show or apply a rendering preset (balanced/high/battery); colors stay untouched"),
     ("matrix-lock history", "list saved lock-screen revisions"),
     ("matrix-lock undo", "restore the previous lock-screen revision"),
     ("matrix-lock restore REV", "restore a specific revision from history"),

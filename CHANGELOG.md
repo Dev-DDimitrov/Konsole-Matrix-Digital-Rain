@@ -10,8 +10,18 @@ v0.9.0 source release and future work.
 - Native animated Matrix rain on the KDE lock screen: a Plasma 6 QML
   wallpaper plugin (`plasma/wallpapers/io.github.devddimitrov.matrixrain/`)
   with independent per-monitor rainfall, wall-clock-synchronized hue and
-  cycling, a low-power fade-overlay render mode (default) plus an exact
-  discrete-fade `quality` mode, and display-off suspension.
+  cycling, and verified display-off suspension (simulation gates on the
+  window's `frameSwapped` presentation heartbeat and measured 0.0% CPU
+  during DPMS-off).
+- GPU shader renderer (default `auto` render mode): a baked `.qsb` fragment
+  shader (`contents/shaders/rain.frag`) composites a white glyph atlas with a
+  per-cell state texture for terminal-exact discrete fades at terminal pace
+  (25 steps/s at speed 96) — measured ~32% of one core across three displays.
+  Canvas fallbacks remain: `quality` (discrete-fade fillText) and `low-power`
+  (fade-overlay).
+- `matrix-lock quality balanced|high|battery` presets that switch rendering
+  bundles (render mode, FPS cap, speed, density, trails, flashes) while never
+  touching the selected color, hue cycling, white heads, or glyph size.
 - `matrix-lock` command: live configuration preview that reuses the terminal
   renderer, save/cancel semantics, exact hue capture (`capture-hue`, visual
   `h` hold, `set hue DEG`, `set color "#RRGGBB"`), hue cycling controls,
