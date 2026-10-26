@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import matrix_lockscreen as lock
+import matrix_resource_guard as resource_guard
 from matrix_config import (
     COLORS,
     ConfigError,
@@ -46,6 +47,13 @@ SET_KEYS = {
     "glyph-size": ("glyph_size", "int"),
     "render-scale": ("render_scale", "float"),
     "render-mode": ("render_mode", "str"),
+    "resource-guard": ("resource_guard", "bool"),
+    "guard-cpu-pause": ("guard_cpu_pause", "int"),
+    "guard-mem-pause": ("guard_mem_pause", "int"),
+    "guard-cpu-resume": ("guard_cpu_resume", "int"),
+    "guard-mem-resume": ("guard_mem_resume", "int"),
+    "guard-pause-secs": ("guard_pause_secs", "float"),
+    "guard-resume-secs": ("guard_resume_secs", "float"),
 }
 
 
@@ -307,6 +315,22 @@ def cmd_doctor(_args):
     for tool in ("kscreen-doctor", "loginctl"):
         report(tool, "PASS" if shutil.which(tool) else "WARN", shutil.which(tool) or "not found")
     report("Authentication", "PASS", "matrix-lock never modifies KScreenLocker, PAM, or SDDM; wallpaper only")
+    try:
+        values = lock.load_profile()
+        if values["resource_guard"]:
+            probe = resource_guard.ResourceGuard(cfg=values, interval_s=0.0)
+            probe.poll()
+            time.sleep(1.0)
+            probe.poll()
+            report("Resource guard", "PASS",
+                   f"{probe.describe()} (pause {values['guard_cpu_pause']}%cpu/"
+                   f"{values['guard_mem_pause']}%mem after {values['guard_pause_secs']:.0f}s, "
+                   f"resume <{values['guard_cpu_resume']}%/{values['guard_mem_resume']}% "
+                   f"for {values['guard_resume_secs']:.0f}s)")
+        else:
+            report("Resource guard", "WARN", "disabled (matrix-lock set resource-guard on)")
+    except (ConfigError, OSError) as exc:
+        report("Resource guard", "WARN", f"metrics unavailable: {exc}")
     return 0
 
 

@@ -90,6 +90,34 @@
       <label>auto: GPU shader (recommended); quality: exact-fade canvas; low-power: fade-overlay canvas</label>
       <default>auto</default>
     </entry>
+    <entry name="ResourceGuard" type="Bool">
+      <label>Freeze the animation while overall system CPU or memory use is excessive</label>
+      <default>true</default>
+    </entry>
+    <entry name="GuardCpuPause" type="Int">
+      <label>Aggregate CPU percent that triggers resource protection</label>
+      <default>85</default>
+    </entry>
+    <entry name="GuardMemPause" type="Int">
+      <label>Memory-in-use percent (MemAvailable based) that triggers resource protection</label>
+      <default>85</default>
+    </entry>
+    <entry name="GuardCpuResume" type="Int">
+      <label>CPU percent both metrics must fall below before resuming</label>
+      <default>70</default>
+    </entry>
+    <entry name="GuardMemResume" type="Int">
+      <label>Memory percent both metrics must fall below before resuming</label>
+      <default>70</default>
+    </entry>
+    <entry name="GuardPauseSecs" type="Double">
+      <label>Seconds of sustained overload before the animation freezes</label>
+      <default>8</default>
+    </entry>
+    <entry name="GuardResumeSecs" type="Double">
+      <label>Seconds of stable recovery before the animation resumes</label>
+      <default>10</default>
+    </entry>
   </group>
 
 </kcfg>

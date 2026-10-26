@@ -18,6 +18,7 @@ import re
 import time
 from pathlib import Path
 
+from matrix_resource_guard import validate_guard
 from matrix_config import (
     COLOR_RGB,
     COLORS,
@@ -78,6 +79,14 @@ LOCK_DEFAULTS = {
     "glyph_size": 18,
     "render_scale": 1.0,
     "render_mode": "auto",
+    # Adaptive resource protection (see matrix_resource_guard.py).
+    "resource_guard": True,
+    "guard_cpu_pause": 85,
+    "guard_mem_pause": 85,
+    "guard_cpu_resume": 70,
+    "guard_mem_resume": 70,
+    "guard_pause_secs": 8.0,
+    "guard_resume_secs": 10.0,
 }
 
 # Rendering/pacing bundles for `matrix-lock quality NAME`. They never touch
@@ -161,6 +170,7 @@ def validate(values):
         merged["render_mode"] = str(merged["render_mode"]).lower()
         if merged["render_mode"] not in ("auto", "quality", "low-power"):
             raise ConfigError("render_mode must be auto, quality, or low-power")
+        validate_guard(merged)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"invalid lock-screen value: {exc}") from exc
     if merged["reduced_motion"]:
@@ -521,6 +531,13 @@ def export_assignments(values, epoch=None):
         "GlyphSize": values["glyph_size"],
         "RenderScale": values["render_scale"],
         "RenderMode": values["render_mode"],
+        "ResourceGuard": values["resource_guard"],
+        "GuardCpuPause": values["guard_cpu_pause"],
+        "GuardMemPause": values["guard_mem_pause"],
+        "GuardCpuResume": values["guard_cpu_resume"],
+        "GuardMemResume": values["guard_mem_resume"],
+        "GuardPauseSecs": values["guard_pause_secs"],
+        "GuardResumeSecs": values["guard_resume_secs"],
     }
 
 
