@@ -408,30 +408,23 @@ WallpaperItem {
         width: Math.max(2, root.cols * 2)
         height: Math.max(2, root.rows * 2)
         renderStrategy: Canvas.Threaded
-        property var image: null
-        property var touched: []
+        // putImageData never reaches a Canvas.Threaded texture on Qt 6.11
+        // (verified empirically), so cells are written with fillRect draw
+        // ops. Full clear + full redraw every paint: on fractional-scale
+        // displays the canvas raster is not 1:1 with logical coordinates,
+        // so incremental erasing leaves resampled edge bytes behind that
+        // accumulate as stale cells. Antialiasing stays off so every fill
+        // writes exact byte values for the shader to decode.
+        antialiasing: false
+        property var styleCache: ({})
 
         onPaint: {
             if (root.backend !== "shader")
                 return
             const ctx = getContext("2d")
-            if (image === null || image.width !== width || image.height !== height) {
-                image = ctx.createImageData(width, height)
-                touched = []
-            }
-            const data = image.data
-            const rowStride = width * 4
-            // Clear only the cells written last frame (CanvasImageData has
-            // no TypedArray.fill); a fresh createImageData starts zeroed.
-            const previous = touched
-            for (let t = 0; t < previous.length; ++t) {
-                const base = previous[t]
-                data[base + 1] = 0
-                data[base + 5] = 0
-                data[base + rowStride + 1] = 0
-                data[base + rowStride + 5] = 0
-            }
-            const written = []
+            ctx.fillStyle = "#000000"
+            ctx.fillRect(0, 0, width, height)
+            const cache = styleCache
             const columnList = root.columns
             const levels = root.fadeLevels
             for (let i = 0; i < columnList.length; ++i) {
@@ -451,21 +444,16 @@ WallpaperItem {
                         const ratio = Math.min(1.0, distance / Math.max(1, stream.length - 1))
                         level = 1 + Math.min(levels - 1, Math.floor(ratio * levels))
                     }
-                    const base = (cell.y * 2) * rowStride + x2 * 4
-                    for (let dy = 0; dy < 2; ++dy) {
-                        const offset = base + dy * rowStride
-                        data[offset] = cell.glyph
-                        data[offset + 1] = level
-                        data[offset + 3] = 255
-                        data[offset + 4] = cell.glyph
-                        data[offset + 5] = level
-                        data[offset + 7] = 255
+                    const key = cell.glyph * 8 + level
+                    let style = cache[key]
+                    if (style === undefined) {
+                        style = "rgb(" + cell.glyph + "," + level + ",0)"
+                        cache[key] = style
                     }
-                    written.push(base)
+                    ctx.fillStyle = style
+                    ctx.fillRect(x2, cell.y * 2, 2, 2)
                 }
             }
-            touched = written
-            ctx.putImageData(image, 0, 0)
         }
     }
 
