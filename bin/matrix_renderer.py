@@ -35,6 +35,7 @@ from matrix_config import (  # noqa: E402
     save_last_effective,
 )
 from matrix_guide_data import SETTINGS_LOCK_ALLOWED_KEYS, renderer_help_text  # noqa: E402
+import matrix_resource_guard  # noqa: E402
 
 KATAKANA = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ'
 DIGITS = '1234567890'
@@ -63,6 +64,7 @@ args.spacing = max(1, args.spacing)
 
 STARTUP_SETTINGS = {key: getattr(args, key) for key in DEFAULTS}
 args.paused = False
+args.auto_held = False
 args.pause_started = 0.0
 args.cycle_paused_elapsed = 0.0
 args.hue_hold = bool(getattr(args, "hue_hold", False))
@@ -498,6 +500,28 @@ def advance_simulation(columns, frame):
     return True
 
 
+# Adaptive resource protection (see matrix_resource_guard.py). Reuses the
+# pause bookkeeping so hue/cycle time freezes with the frame; a user's manual
+# pause always wins, and a user resume during overload snoozes the guard
+# until the system has calmed once.
+RESOURCE_GUARD = None
+
+
+def poll_resource_guard(status, sync):
+    if RESOURCE_GUARD is None:
+        return
+    held = RESOURCE_GUARD.poll()
+    if held and not args.auto_held and not args.paused:
+        args.auto_held = True
+        toggle_pause(status, sync)
+        status.show('Auto-paused: system busy (resource guard)')
+    elif args.auto_held and not held:
+        args.auto_held = False
+        if args.paused:
+            toggle_pause(status, sync)
+            status.show('Resumed: system load recovered')
+
+
 def toggle_hue_hold(status, sync):
     if not args.color_cycle:
         status.show('Hue hold is available while color cycling')
@@ -647,6 +671,12 @@ def handle_key(screen, status, columns, sync):
         return True
     if key in (ord('p'), ord('P')):
         toggle_pause(status, sync)
+        if not args.paused:
+            # The user resumed manually: take ownership from the resource
+            # guard and stand down until the system has calmed once.
+            if args.auto_held and RESOURCE_GUARD is not None and RESOURCE_GUARD.held:
+                RESOURCE_GUARD.snooze()
+            args.auto_held = False
         return False
     if args.settings_lock:
         if chr(key) == '?':
@@ -725,12 +755,17 @@ def handle_key(screen, status, columns, sync):
 
 
 def run(screen, sync=None):
+    global RESOURCE_GUARD
     curses.curs_set(0)
     curses.use_default_colors()
     screen.nodelay(True)
     screen.keypad(True)
     if curses.COLORS < 256:
         raise RuntimeError(f'unimatrix-fade requires 256 colors; curses reports {curses.COLORS}')
+    args.auto_held = False
+    guard_cfg = getattr(args, 'resource_guard', None)
+    if isinstance(guard_cfg, dict) and guard_cfg.get('resource_guard', True):
+        RESOURCE_GUARD = matrix_resource_guard.ResourceGuard(cfg=guard_cfg)
     args.cycle_epoch = getattr(args, 'cycle_epoch', time.monotonic())
     record_effective_settings()
     palette = Palette()
@@ -761,6 +796,13 @@ def run(screen, sync=None):
             screen.erase()
         if handle_key(screen, status, columns, sync):
             return
+        poll_resource_guard(status, sync)
+        if args.auto_held and time.monotonic() > status.until + 0.5:
+            # Frozen by resource protection with no status text to show:
+            # skip all drawing (the terminal keeps the last frame) and idle
+            # at a slow poll while staying responsive to keys.
+            curses.napms(150)
+            continue
         advanced = advance_simulation(columns, frame)
         screen.erase()
         for col in columns:

@@ -177,6 +177,53 @@ class FinalInteractionTests(unittest.TestCase):
         translucent = (SOURCE_ROOT / "konsole/Matrix-Translucent.profile").read_text(encoding="utf-8")
         self.assertIn("Matrix-Translucent", translucent)
 
+    def test_resource_guard_engages_and_releases_via_pause_bookkeeping(self):
+        r = renderer()
+        held_flag = {"value": True}
+        guard = Mock()
+        guard.poll = lambda: held_flag["value"]
+        guard.held = True
+        r.RESOURCE_GUARD = guard
+        r.args.paused = False
+        r.args.auto_held = False
+        status = Mock()
+        r.poll_resource_guard(status, None)
+        self.assertTrue(r.args.auto_held)
+        self.assertTrue(r.args.paused)        # engaged through pause bookkeeping
+        held_flag["value"] = False
+        r.poll_resource_guard(status, None)
+        self.assertFalse(r.args.auto_held)
+        self.assertFalse(r.args.paused)       # released automatically
+
+    def test_resource_guard_never_overrides_manual_pause(self):
+        r = renderer()
+        guard = Mock()
+        held = {"value": True}
+        guard.poll = lambda: held["value"]
+        r.RESOURCE_GUARD = guard
+        r.args.paused = True                  # user paused first
+        r.args.auto_held = False
+        r.args.pause_started = 1.0
+        status = Mock()
+        r.poll_resource_guard(status, None)   # overload while user paused
+        self.assertFalse(r.args.auto_held)
+        held["value"] = False
+        r.poll_resource_guard(status, None)   # recovery
+        self.assertTrue(r.args.paused)        # user pause preserved
+
+    def test_manual_resume_during_hold_snoozes_guard(self):
+        r = renderer()
+        guard = Mock()
+        guard.held = True
+        r.RESOURCE_GUARD = guard
+        r.args.auto_held = True
+        r.args.paused = True
+        r.args.pause_started = 1.0
+        r.handle_key(Keys(ord("p")), Mock(), [], None)
+        self.assertFalse(r.args.paused)       # user resumed
+        self.assertFalse(r.args.auto_held)
+        guard.snooze.assert_called_once()     # guard stands down until calm
+
 
 if __name__ == "__main__":
     unittest.main()

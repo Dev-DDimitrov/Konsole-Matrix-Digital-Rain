@@ -66,6 +66,43 @@ WallpaperItem {
         : renderMode === "low-power" ? "canvas-lowpower"
         : (shaderFailed ? "canvas-quality" : "shader")
 
+    // ---- adaptive resource protection --------------------------------------
+    readonly property bool resourceGuardEnabled: root.configuration.ResourceGuard === true
+    readonly property var guardCfg: ({
+        cpuPause: Number(root.configuration.GuardCpuPause) || 85,
+        memPause: Number(root.configuration.GuardMemPause) || 85,
+        cpuResume: Number(root.configuration.GuardCpuResume) || 70,
+        memResume: Number(root.configuration.GuardMemResume) || 70,
+        pauseSecs: Number(root.configuration.GuardPauseSecs) || 8,
+        resumeSecs: Number(root.configuration.GuardResumeSecs) || 10
+    })
+    readonly property bool resourceHold: resourceGuardEnabled
+        && guardLoader.status === Loader.Ready && guardLoader.item !== null
+        && guardLoader.item.held
+    // True once no frame has been presented for a while even though the probe
+    // keeps committing: all signs of displays being off. Monitoring pauses.
+    property bool displaysDead: false
+    // Hue-cycle continuity: wall-clock milliseconds the displayed hue lags
+    // behind the synchronized schedule after a hold, slewed back to zero so
+    // recovery never jumps the hue and monitors re-converge.
+    property double hueDebtMs: 0
+    property double holdEnterMs: 0
+    onResourceHoldChanged: {
+        if (resourceHold) {
+            holdEnterMs = Date.now()
+        } else {
+            if (holdEnterMs > 0) {
+                const periodMs = cyclePeriod * 1000
+                let debt = (hueDebtMs + (Date.now() - holdEnterMs)) % periodMs
+                if (debt > periodMs / 2)
+                    debt -= periodMs
+                hueDebtMs = debt
+                holdEnterMs = 0
+            }
+            lastStepMs = 0   // resume without an elapsed-time burst
+        }
+    }
+
     readonly property real pitchXBase: Math.round(glyphSize * 1.35)
     readonly property real pitchYBase: Math.round(glyphSize * 1.15)
 
@@ -199,7 +236,7 @@ WallpaperItem {
 
     function currentPhase() {
         const sign = cycleReverse ? -1.0 : 1.0
-        const elapsed = (Date.now() / 1000.0) - cycleEpoch
+        const elapsed = ((Date.now() - hueDebtMs) / 1000.0) - cycleEpoch
         const phase = cyclePhase + sign * (elapsed / cyclePeriod)
         return ((phase % 1) + 1) % 1
     }
@@ -310,6 +347,8 @@ WallpaperItem {
     }
 
     function tick() {
+        if (resourceHold)
+            return   // frozen by resource protection (stepTimer also stops)
         const now = Date.now()
         // Presentation heartbeat: when the compositor stops completing
         // frames (display off / surface unmapped), stop simulating. The
@@ -329,6 +368,14 @@ WallpaperItem {
                 tickColumn(columns[i])
             frame = (frame + 1) % 600000
         }
+        // Slew any post-hold hue debt back to zero (at most half a cycle,
+        // cleared within ~15 s) so monitors re-synchronize smoothly.
+        if (hueDebtMs !== 0 && colorCycle) {
+            const rate = (cyclePeriod * 1000) / 2 / 15000
+            const delta = Math.min(Math.abs(hueDebtMs), rate * stepInterval * steps)
+            hueDebtMs = Math.abs(hueDebtMs) <= delta + 1
+                ? 0 : hueDebtMs - Math.sign(hueDebtMs) * delta
+        }
         updateTrailColors()
         if (backend === "shader")
             stateCanvas.requestPaint()
@@ -338,6 +385,7 @@ WallpaperItem {
 
     function resumeFromSwap() {
         lastSwapMs = Date.now()
+        displaysDead = false
         if (suspended) {
             suspended = false
             lastStepMs = 0
@@ -635,7 +683,7 @@ WallpaperItem {
         id: stepTimer
         interval: root.stepInterval
         repeat: true
-        running: root.visible && root.windowVisible && !root.suspended
+        running: root.visible && root.windowVisible && !root.suspended && !root.resourceHold
         onTriggered: root.tick()
     }
 
@@ -645,5 +693,29 @@ WallpaperItem {
         repeat: true
         running: root.suspended
         onTriggered: probePixel.x = probePixel.x === 0 ? 1 : 0
+    }
+
+    // While the window is swap-suspended the probe above keeps committing;
+    // if no frame completes for this long anyway, the displays are really
+    // off and resource monitoring pauses too (resumeFromSwap clears it).
+    Timer {
+        id: displaysDeadTimer
+        interval: 12000
+        running: root.suspended && !root.displaysDead
+        onTriggered: root.displaysDead = true
+    }
+
+    Loader {
+        id: guardLoader
+        active: root.resourceGuardEnabled
+        source: "ResourceMonitor.qml"
+        onStatusChanged: {
+            if (status === Loader.Error)
+                console.warn("matrixrain: resource monitoring unavailable; adaptive protection disabled")
+        }
+        onLoaded: {
+            item.cfg = Qt.binding(function () { return root.guardCfg })
+            item.monitoringActive = Qt.binding(function () { return !root.displaysDead })
+        }
     }
 }

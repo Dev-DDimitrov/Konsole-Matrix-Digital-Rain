@@ -22,6 +22,17 @@ v0.9.0 source release and future work.
 - `matrix-lock quality balanced|high|battery` presets that switch rendering
   bundles (render mode, FPS cap, speed, density, trails, flashes) while never
   touching the selected color, hue cycling, white heads, or glyph size.
+- Adaptive resource protection for both renderers
+  (`bin/matrix_resource_guard.py`, mirrored in the wallpaper's `guard.js`):
+  the animation freezes its current frame while aggregate CPU or
+  memory-in-use is at or above 85% for ~8 s (or memory PSI indicates stalls)
+  and resumes after both metrics hold at or below 70% for 10 s. CPU comes
+  from `/proc/stat` counter deltas, memory from `MemAvailable`; one shared
+  5-second poller per greeter process (0.03% of one core measured) that
+  pauses while displays are off. Terminal `[resource_guard]` config section;
+  lock-screen `resource-guard`/`guard-*` settings via `matrix-lock set`;
+  live reading in `matrix-lock doctor`. Monitoring failures fail open, and a
+  manual pause or resume always wins over the guard.
 - `matrix-lock` command: live configuration preview that reuses the terminal
   renderer, save/cancel semantics, exact hue capture (`capture-hue`, visual
   `h` hold, `set hue DEG`, `set color "#RRGGBB"`), hue cycling controls,

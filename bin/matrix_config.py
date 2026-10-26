@@ -302,6 +302,18 @@ def load_config(path=CONFIG_PATH):
     values["settings_lock"] = {
         "enabled": bool(lock.get("enabled", SETTINGS_LOCK_DEFAULTS["enabled"])),
     }
+    from matrix_resource_guard import GUARD_DEFAULTS, validate_guard
+    resource = _table(data, "resource_guard")
+    guard_values = {"resource_guard": resource.get(
+        "enabled", GUARD_DEFAULTS["resource_guard"])}
+    for key, default in GUARD_DEFAULTS.items():
+        if key == "resource_guard":
+            continue
+        guard_values[key] = resource.get(key.replace("guard_", ""), default)
+    try:
+        values["resource_guard"] = validate_guard(guard_values)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"invalid [resource_guard] value: {exc}") from exc
     return values, None
 
 
@@ -391,6 +403,11 @@ def resolve(namespace):
     values["exit_guard"] = config.get("exit_guard", dict(EXIT_GUARD_DEFAULTS))
     values["matrix_all"] = config.get("matrix_all", dict(MATRIX_ALL_DEFAULTS))
     values["settings_lock"] = config.get("settings_lock", dict(SETTINGS_LOCK_DEFAULTS))
+    if "resource_guard" in config:
+        values["resource_guard"] = config["resource_guard"]
+    else:
+        from matrix_resource_guard import GUARD_DEFAULTS
+        values["resource_guard"] = dict(GUARD_DEFAULTS)
     return values
 
 

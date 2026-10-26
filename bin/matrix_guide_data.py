@@ -36,6 +36,8 @@ LOCK_COMMANDS = (
     ("matrix-lock capture-hue", "capture the hue most recently held with h in a Matrix session"),
     ("matrix-lock preset list|apply NAME", "apply built-in or user Matrix presets to the lock profile"),
     ("matrix-lock quality [NAME]", "show or apply a rendering preset (balanced/high/battery); colors stay untouched"),
+    ("matrix-lock set resource-guard on|off", "auto-freeze the animation while system CPU/memory use is excessive"),
+    ("matrix-lock set guard-cpu-pause 85", "guard thresholds: guard-mem-pause, guard-cpu/mem-resume, guard-pause/resume-secs"),
     ("matrix-lock history", "list saved lock-screen revisions"),
     ("matrix-lock undo", "restore the previous lock-screen revision"),
     ("matrix-lock restore REV", "restore a specific revision from history"),

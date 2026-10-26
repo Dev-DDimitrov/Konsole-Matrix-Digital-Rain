@@ -151,6 +151,22 @@ resumes automatically on the first presented frame after wake. Measured on
 Plasma 6.7/Qt 6.11 across a DPMS off/on cycle, greeter CPU drops from ~30%
 of one core (three displays, balanced) to 0.0% while displays are off.
 
+Adaptive resource protection (on by default) additionally freezes the
+current frame while the whole system is overloaded: aggregate CPU or
+memory-in-use at or above 85% sustained for ~8 seconds (memory pressure
+stalls count too), resuming after both fall to 70% or below for 10 stable
+seconds. CPU is derived from `/proc/stat` counter deltas and memory from
+`MemAvailable`, sampled once per 5 seconds by a single shared poller per
+greeter process (measured 0.03% of one core) that itself pauses while
+displays are off. The terminal renderer honors the same `[resource_guard]`
+settings from `config.toml` and reuses its pause bookkeeping, so hue and
+animation freeze together, a manual pause is never overridden, and a manual
+resume during overload snoozes the guard until the system has calmed.
+Thresholds are configurable (`matrix-lock set resource-guard off`,
+`guard-cpu-pause`, `guard-mem-pause`, `guard-cpu-resume`,
+`guard-mem-resume`, `guard-pause-secs`, `guard-resume-secs`);
+`matrix-lock doctor` reports a live reading.
+
 The plugin never touches KScreenLocker, PAM, SDDM, or password entry; it is
 wallpaper only, configured through `kscreenlockerrc` and rendered by the
 stock KDE greeter.

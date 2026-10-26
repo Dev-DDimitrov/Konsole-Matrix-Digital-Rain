@@ -27,7 +27,11 @@ normal Matrix controls and offers to save on exit, `set hue`/`set color`
 select exact colors, `capture-hue` imports a hue held with `h`,
 `quality balanced|high|battery` switches rendering bundles without touching
 colors, and `history`/`undo`/`restore` provide reversible configuration
-rollback.
+rollback. Adaptive resource protection (on by default, `[resource_guard]` in
+config.toml for the terminal, `matrix-lock set resource-guard`/`guard-*` for
+the lock screen) freezes the animation while overall system CPU or memory
+use is excessive and resumes it automatically; it never overrides a manual
+pause.
 `enable` backs up the previous lock wallpaper before activating;
 `disable` restores it. See `matrix-guide --lock` for the complete workflow
 and the README's "Animated KDE lock screen" section for details.

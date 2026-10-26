@@ -51,6 +51,19 @@ gates on the window's frameSwapped presentation heartbeat: when the
 compositor stops completing frames (displays off), stepping stops within
 ~1.5 s at 0.0% measured CPU and resumes on the first presented frame.
 
+Adaptive resource protection shares one hysteresis state machine between
+`bin/matrix_resource_guard.py` (terminal renderer, `matrix-lock doctor`) and
+`contents/ui/guard.js` (wallpaper): overload at >=85% CPU (from /proc/stat
+counter deltas) or memory-in-use (MemAvailable based) sustained ~8 s, or
+memory PSI stalls; recovery when both hold <=70% for 10 s; unreadable
+metrics fail open. The wallpaper samples through one plasma5support
+executable dataengine source shared by every screen in the greeter process
+and disconnects it while displays are off; the terminal renderer reads
+/proc directly on the same 5 s cadence and reuses its pause bookkeeping so
+a user pause is never overridden. On release, the wallpaper slews the hue
+back onto the shared wall-clock schedule (at most half a cycle in ~15 s) so
+monitors stay synchronized without a visible hue jump.
+
 ## Installation state
 
 The installer records only the files it installed, with SHA-256 values, in a

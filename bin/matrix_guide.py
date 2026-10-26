@@ -96,6 +96,11 @@ def lockscreen():
     print("Cycling starts from the saved hue and stays synchronized across monitors.")
     print("Changes apply on the next lock; matrix-lock preview --greeter tests safely first.")
     print("Lock-screen saves never change terminal Matrix settings, and vice versa.")
+    print("")
+    print("Adaptive resource protection (on by default) freezes the rain while overall")
+    print("system CPU or memory use is excessive and resumes it when the system recovers;")
+    print("the terminal renderer honors the same [resource_guard] settings in config.toml")
+    print("and never overrides a manual pause. matrix-lock doctor shows a live reading.")
 
 
 def settings():
