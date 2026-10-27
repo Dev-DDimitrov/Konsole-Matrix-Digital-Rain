@@ -18,6 +18,10 @@ Run `matrix-guide --controls` for the current generated list.
 | `w` | Cycle white heads: 75% → 50% → 25% → 0% |
 | `b` | Cycle profile, black, charcoal, white, translucent backgrounds |
 | `Alt+Left` / `Alt+Right` | Nudge hue and automatically hold it |
+| `x` | Mark hue-exclusion start; press again at the end (while cycling; works paused) |
+| `X` | Clear all hue exclusions, or cancel a pending mark |
+| `u` / `U` | Undo / redo the most recent visual edit (session-local, bounded) |
+| `r` | Reset the editing session to its startup settings (undoable) |
 | `Ctrl+L` | Lock/unlock live visual settings |
 | `q`, `Escape`, `Space`, `Ctrl+C` | Exit unless `exit_guard` is enabled |
 

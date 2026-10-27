@@ -26,8 +26,10 @@ Initial public release: **v0.9.0**.
 | `bin/unimatrix-fade*` | Local renderer entry points; not copies of the external UniMatrix executable. |
 | `config/config.toml.example` | Non-destructive first-install configuration example. |
 | `konsole/` | Matrix-owned Konsole profiles and color schemes. |
+| `bin/matrix_resource_guard.py` | Adaptive resource-protection metrics and hysteresis logic. |
 | `scripts/install.sh` | User-level installation with dry-run and manifest safeguards. |
 | `scripts/uninstall.sh` | Manifest-based user-level removal with preservation checks. |
+| `scripts/build-shaders.sh` | Regenerates the committed `.qsb` shader from its GLSL source. |
 | `systemd/matrix-saver.service` | Optional user unit; never enabled automatically. |
 | `tests/` | Portable regression, safety, and staging tests. |
 | `*.md` | User, contributor, architecture, security, provenance, and release documentation. |

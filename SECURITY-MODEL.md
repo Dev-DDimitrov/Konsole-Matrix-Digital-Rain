@@ -14,13 +14,26 @@ identically.
 - The UI `exit_guard` is an input guard, not authentication or authorization.
 - The lock-screen integration is wallpaper-only: a Plasma wallpaper plugin
   rendered by the stock KDE greeter. It never modifies KScreenLocker, PAM,
-  SDDM, password entry, or lock/unlock policy, captures no input, and runs no
-  project process while the screen is locked. `matrix-lock enable` records
-  the previous wallpaper plugin before changing `kscreenlockerrc`, and
-  `matrix-lock disable` restores it.
-- Lock-screen configuration values (colors, numbers, mode names) are
-  validated data written as literal KConfig keys; HEX colors and numeric
-  parameters are never treated as executable expressions.
+  SDDM, password entry, or lock/unlock policy, and captures no input.
+  `matrix-lock enable` records the previous wallpaper plugin before changing
+  `kscreenlockerrc`, and `matrix-lock disable` restores it.
+- While the wallpaper is visible, its adaptive resource guard samples system
+  load by running one fixed, hard-coded command (`cat` over `/proc/stat`,
+  `/proc/meminfo`, and `/proc/pressure/memory`) through Plasma's standard
+  executable dataengine about every five seconds, shared by all screens. The
+  command string is a constant: no configuration value, file content, or
+  preset data is ever interpolated into it or executed. Monitoring pauses
+  while displays are off.
+- Lock-screen configuration values (colors, numbers, mode names, hue
+  exclusions) are validated data written as literal KConfig keys; HEX colors
+  and numeric parameters are never treated as executable expressions, and
+  malformed values degrade to defaults rather than code paths.
+- Wallpaper failure cannot bypass authentication: the greeter and password
+  prompt are KDE's own and render above the wallpaper. If the wallpaper ever
+  misbehaves, recovery is: switch to a TTY (Ctrl+Alt+F3), log in, run
+  `matrix-lock disable` (restores the recorded previous wallpaper), then
+  return to the session (Ctrl+Alt+F1/F2). `scripts/uninstall.sh` removes the
+  plugin entirely; both paths leave authentication untouched.
 
 ## State and configuration
 

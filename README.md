@@ -203,7 +203,12 @@ Thresholds are configurable (`matrix-lock set resource-guard off`,
 
 The plugin never touches KScreenLocker, PAM, SDDM, or password entry; it is
 wallpaper only, configured through `kscreenlockerrc` and rendered by the
-stock KDE greeter.
+stock KDE greeter. KDE's password prompt renders above the wallpaper, so a
+wallpaper failure cannot block authentication. If the lock screen ever looks
+wrong, the recovery path is: switch to a TTY (Ctrl+Alt+F3), log in, run
+`matrix-lock disable` to restore the previously recorded wallpaper, and
+switch back (Ctrl+Alt+F1 or F2); `scripts/uninstall.sh` removes the plugin
+entirely. Neither path touches authentication.
 
 ## Saver and KDE security behavior
 

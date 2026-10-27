@@ -264,6 +264,17 @@ class ExportTests(Isolated):
         self.assertEqual(lock.current_wallpaper_plugin(rc), "org.kde.image")
         self.assertFalse((self.root / "backup.json").exists())
 
+    def test_disable_rejects_corrupted_backup_plugin_id(self):
+        rc = self.root / "kscreenlockerrc"
+        rc.write_text("[Greeter]\nWallpaperPlugin=io.github.devddimitrov.matrixrain\n",
+                      encoding="utf-8")
+        (self.root / "backup.json").write_text(
+            json.dumps({"wallpaper_plugin": "evil\n[Greeter]\nX=Y"}), encoding="utf-8")
+        restored = lock.disable(rc_path=rc)
+        # Structural garbage never reaches kscreenlockerrc; stock default wins.
+        self.assertEqual(restored, "org.kde.image")
+        self.assertNotIn("evil", rc.read_text(encoding="utf-8"))
+
     def test_enable_requires_installed_plugin(self):
         with patch.object(lock, "PLUGIN_DIR", self.root / "missing"):
             with self.assertRaises(config.ConfigError):

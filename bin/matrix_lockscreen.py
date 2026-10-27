@@ -710,7 +710,11 @@ def disable(rc_path=None):
     if WALLPAPER_BACKUP_PATH.exists():
         try:
             backup = json.loads(WALLPAPER_BACKUP_PATH.read_text(encoding="utf-8"))
-            previous = str(backup.get("wallpaper_plugin") or previous)
+            candidate = str(backup.get("wallpaper_plugin") or previous)
+            # A corrupted backup must never write structural garbage into
+            # kscreenlockerrc; fall back to the stock image plugin instead.
+            if re.fullmatch(r"[A-Za-z0-9._-]+", candidate):
+                previous = candidate
         except (OSError, ValueError):
             pass
     kconfig_set(rc_path, ("Greeter",), {"WallpaperPlugin": previous})
