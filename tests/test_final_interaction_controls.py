@@ -211,6 +211,92 @@ class FinalInteractionTests(unittest.TestCase):
         r.poll_resource_guard(status, None)   # recovery
         self.assertTrue(r.args.paused)        # user pause preserved
 
+    def test_session_undo_redo_and_invalidation(self):
+        r = renderer()
+        r.args.paused = False
+        r.UNDO_STACK.clear(); r.REDO_STACK.clear()
+        with patch.object(r, "record_effective_settings"):
+            r.handle_key(Keys(ord("2")), Mock(), [], None)   # color -> red
+            self.assertEqual(r.args.color, "red")
+            self.assertEqual(len(r.UNDO_STACK), 1)
+            r.handle_key(Keys(ord("D")), Mock(), [], None)   # density +5
+            density = r.args.density
+            self.assertEqual(len(r.UNDO_STACK), 2)
+            r.handle_key(Keys(ord("u")), Mock(), [], None)   # undo density
+            self.assertEqual(r.args.density, density - 5)
+            r.handle_key(Keys(ord("u")), Mock(), [], None)   # undo color
+            self.assertEqual(r.args.color, "green")
+            self.assertEqual(len(r.REDO_STACK), 2)
+            r.handle_key(Keys(ord("U")), Mock(), [], None)   # redo color
+            self.assertEqual(r.args.color, "red")
+            # A new edit clears the remaining redo branch.
+            r.handle_key(Keys(ord("3")), Mock(), [], None)
+            self.assertEqual(r.REDO_STACK, [])
+            # Pause is not an edit: no undo entry.
+            depth = len(r.UNDO_STACK)
+            r.handle_key(Keys(ord("p")), Mock(), [], None)
+            self.assertEqual(len(r.UNDO_STACK), depth)
+            r.handle_key(Keys(ord("p")), Mock(), [], None)
+
+    def test_exclusion_marking_clear_and_undo(self):
+        r = renderer()
+        r.args.paused = False
+        r.UNDO_STACK.clear(); r.REDO_STACK.clear()
+        r.args.cycle_exclusions = []
+        with patch.object(r, "record_effective_settings"):
+            status = Mock()
+            # Marking needs cycling on.
+            r.args.color_cycle = False
+            r.handle_key(Keys(ord("x")), status, [], None)
+            self.assertEqual(r.args.cycle_exclusions, [])
+            # Hold the hue to make the marked phases deterministic.
+            r.args.color_cycle = True
+            r.args.hue_hold = True
+            r.args.hue_hold_phase = 0.20
+            r.handle_key(Keys(ord("x")), status, [], None)   # mark start
+            self.assertEqual(r.args.exclusion_mark, 0.20)
+            self.assertEqual(len(r.UNDO_STACK), 0)           # mark alone: no edit
+            r.args.hue_hold_phase = 0.45
+            r.handle_key(Keys(ord("x")), status, [], None)   # mark end
+            self.assertEqual(len(r.args.cycle_exclusions), 1)
+            self.assertAlmostEqual(r.args.cycle_exclusions[0]["start"], 0.20)
+            self.assertAlmostEqual(r.args.cycle_exclusions[0]["end"], 0.45)
+            self.assertEqual(len(r.UNDO_STACK), 1)
+            r.handle_key(Keys(ord("X")), status, [], None)   # clear all
+            self.assertEqual(r.args.cycle_exclusions, [])
+            r.handle_key(Keys(ord("u")), status, [], None)   # undo clear
+            self.assertEqual(len(r.args.cycle_exclusions), 1)
+            r.handle_key(Keys(ord("u")), status, [], None)   # undo creation
+            self.assertEqual(r.args.cycle_exclusions, [])
+
+    def test_reverse_cycling_swaps_marked_interval(self):
+        r = renderer()
+        r.args.paused = False
+        r.args.cycle_exclusions = []
+        r.args.color_cycle = True
+        r.args.hue_hold = True
+        r.args.cycle_direction = "reverse"
+        with patch.object(r, "record_effective_settings"):
+            r.args.hue_hold_phase = 0.45
+            r.handle_key(Keys(ord("x")), Mock(), [], None)
+            r.args.hue_hold_phase = 0.20
+            r.handle_key(Keys(ord("x")), Mock(), [], None)
+        # Traveling backwards from 0.45 to 0.20 excludes the forward arc 0.20->0.45.
+        self.assertAlmostEqual(r.args.cycle_exclusions[0]["start"], 0.20)
+        self.assertAlmostEqual(r.args.cycle_exclusions[0]["end"], 0.45)
+        r.args.cycle_direction = "forward"
+
+    def test_session_reset_is_undoable(self):
+        r = renderer()
+        r.args.paused = False
+        r.UNDO_STACK.clear(); r.REDO_STACK.clear()
+        with patch.object(r, "record_effective_settings"):
+            r.handle_key(Keys(ord("2")), Mock(), [], None)
+            r.handle_key(Keys(ord("r")), Mock(), [], None)   # session reset
+            self.assertEqual(r.args.color, r.STARTUP_SETTINGS["color"])
+            r.handle_key(Keys(ord("u")), Mock(), [], None)   # undo the reset
+            self.assertEqual(r.args.color, "red")
+
     def test_manual_resume_during_hold_snoozes_guard(self):
         r = renderer()
         guard = Mock()

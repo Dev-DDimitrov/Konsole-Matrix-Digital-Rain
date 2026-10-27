@@ -90,6 +90,10 @@
       <label>auto: GPU shader (recommended); quality: exact-fade canvas; low-power: fade-overlay canvas</label>
       <default>auto</default>
     </entry>
+    <entry name="CycleExclusions" type="String">
+      <label>Merged hue-cycle exclusion gaps as start:end:blendSeconds phases, semicolon separated</label>
+      <default></default>
+    </entry>
     <entry name="ResourceGuard" type="Bool">
       <label>Freeze the animation while overall system CPU or memory use is excessive</label>
       <default>true</default>

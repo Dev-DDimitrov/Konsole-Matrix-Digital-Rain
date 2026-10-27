@@ -33,7 +33,11 @@ from matrix_config import (
     load_last_effective,
     load_user_presets,
     nearest_cycle_phase,
+    normalize_cycle_exclusions,
     normalize_preset_name,
+    parse_cycle_exclusions,
+    format_cycle_gaps,
+    format_cycle_exclusions,
     parse_hex_color,
     rgb_to_hex,
 )
@@ -81,6 +85,7 @@ LOCK_DEFAULTS = {
     "glyph_size": 18,
     "render_scale": 1.0,
     "render_mode": "auto",
+    "cycle_exclusions": [],     # custom hue-cycle exclusions (visual key)
     # Adaptive resource protection (see matrix_resource_guard.py).
     "resource_guard": True,
     "guard_cpu_pause": 85,
@@ -172,6 +177,10 @@ def validate(values):
         merged["render_mode"] = str(merged["render_mode"]).lower()
         if merged["render_mode"] not in ("auto", "quality", "low-power"):
             raise ConfigError("render_mode must be auto, quality, or low-power")
+        if isinstance(merged["cycle_exclusions"], str):
+            merged["cycle_exclusions"] = parse_cycle_exclusions(merged["cycle_exclusions"])
+        else:
+            merged["cycle_exclusions"] = normalize_cycle_exclusions(merged["cycle_exclusions"])
         validate_guard(merged)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"invalid lock-screen value: {exc}") from exc
@@ -312,6 +321,8 @@ def from_terminal_values(term):
         values["cycle_period"] = CYCLE_SPEEDS.get(str(term["cycle_speed"]), values["cycle_period"])
     if "background" in term:
         values["background"] = TERMINAL_BACKGROUND_HEX.get(str(term["background"]), values["background"])
+    if "cycle_exclusions" in term:
+        values["cycle_exclusions"] = normalize_cycle_exclusions(term["cycle_exclusions"])
     phase = float(term.get("cycle_phase", current["cycle_phase"])) % 1.0
     values["cycle_phase"] = phase
     if term.get("color_cycle"):
@@ -353,6 +364,8 @@ def renderer_preview_arguments(values):
         arguments += ["--background", "black"]
     if values["reduced_motion"]:
         arguments.append("--reduced-motion")
+    if values["cycle_exclusions"]:
+        arguments += ["--cycle-exclusions", format_cycle_exclusions(values["cycle_exclusions"])]
     if values["color_cycle"]:
         arguments += ["--color-cycle", "--cycle-phase", f"{values['cycle_phase']:.6f}"]
     elif values["color"] in COLORS:
@@ -629,6 +642,7 @@ def export_assignments(values, epoch=None):
         "GlyphSize": values["glyph_size"],
         "RenderScale": values["render_scale"],
         "RenderMode": values["render_mode"],
+        "CycleExclusions": format_cycle_gaps(values["cycle_exclusions"]),
         "ResourceGuard": values["resource_guard"],
         "GuardCpuPause": values["guard_cpu_pause"],
         "GuardMemPause": values["guard_mem_pause"],

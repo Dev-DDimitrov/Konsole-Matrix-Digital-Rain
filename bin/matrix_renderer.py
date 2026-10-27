@@ -30,7 +30,16 @@ from matrix_config import (  # noqa: E402
     DEFAULTS,
     ConfigError,
     add_cli_arguments,
+    build_cycle_path,
+    cycle_path_anchor,
+    cycle_path_phase,
+    cycle_path_rgb,
+    cycle_rgb,
+    hue_from_phase,
+    nearest_xterm,
+    normalize_cycle_exclusions,
     ramp_indices,
+    ramp_rgb,
     resolve,
     save_last_effective,
 )
@@ -65,6 +74,8 @@ args.spacing = max(1, args.spacing)
 STARTUP_SETTINGS = {key: getattr(args, key) for key in DEFAULTS}
 args.paused = False
 args.auto_held = False
+args.exclusion_mark = None
+args._history_op = False
 args.pause_started = 0.0
 args.cycle_paused_elapsed = 0.0
 args.hue_hold = bool(getattr(args, "hue_hold", False))
@@ -321,8 +332,7 @@ class Palette:
 
     def update(self, force=False):
         if args.color_cycle:
-            phase = current_phase()
-            indices = ramp_indices('cycle', phase)
+            indices = [nearest_xterm(rgb) for rgb in ramp_rgb(current_cycle_rgb())]
         else:
             indices = ramp_indices(args.color)
         background_mode = args.background
@@ -407,6 +417,54 @@ def current_phase():
         return args.hue_hold_phase
     sign = -1.0 if args.cycle_direction == 'reverse' else 1.0
     return (args.cycle_phase + sign * ((_cycle_time() - args.cycle_epoch) / args.cycle_period)) % 1.0
+
+
+_PATH_CACHE = {"key": None, "path": None, "anchor_key": None, "anchor": 0.0}
+
+
+def cycle_path_now():
+    """Current precomputed exclusion path, or None for the full spectrum."""
+    exclusions = args.cycle_exclusions
+    key = (tuple((e["start"], e["end"], e["blend"], e["enabled"])
+                 for e in exclusions), args.cycle_period)
+    if key != _PATH_CACHE["key"]:
+        _PATH_CACHE["key"] = key
+        try:
+            _PATH_CACHE["path"] = build_cycle_path(exclusions, args.cycle_period)
+        except ConfigError:
+            _PATH_CACHE["path"] = None
+        _PATH_CACHE["anchor_key"] = None
+    return _PATH_CACHE["path"]
+
+
+def _path_seconds(path):
+    anchor_key = (args.cycle_phase, _PATH_CACHE["key"])
+    if _PATH_CACHE["anchor_key"] != anchor_key:
+        _PATH_CACHE["anchor_key"] = anchor_key
+        _PATH_CACHE["anchor"] = cycle_path_anchor(path, args.cycle_phase)
+    sign = -1.0 if args.cycle_direction == 'reverse' else 1.0
+    return _PATH_CACHE["anchor"] + sign * (_cycle_time() - args.cycle_epoch)
+
+
+def current_cycle_rgb():
+    """Displayed cycling color, honoring hue hold and exclusion bridges."""
+    if args.hue_hold:
+        return cycle_rgb(args.hue_hold_phase)
+    path = cycle_path_now()
+    if path is None:
+        return cycle_rgb(current_phase())
+    return cycle_path_rgb(path, _path_seconds(path))
+
+
+def current_display_phase():
+    """Spectrum phase currently shown; inside a bridge, the nearer retained
+    endpoint, so captures and exclusion marks stay exactly reproducible."""
+    if args.hue_hold or not args.color_cycle:
+        return current_phase()
+    path = cycle_path_now()
+    if path is None:
+        return current_phase()
+    return cycle_path_phase(path, _path_seconds(path))
 
 
 def anchor_cycle_phase(phase):
@@ -531,7 +589,7 @@ def toggle_hue_hold(status, sync):
         args.hue_hold = False
         message = 'Hue cycling resumed'
     else:
-        args.hue_hold_phase = current_phase()
+        args.hue_hold_phase = current_display_phase()
         args.hue_hold = True
         # Anchor so the held phase is also the recorded cycle_phase; this is
         # what lets matrix-lock capture the exact visually selected hue.
@@ -621,6 +679,115 @@ def alt_arrow(screen, key):
     return None
 
 
+# --------- session undo/redo (bounded snapshots of intentional edits) -------
+UNDO_LIMIT = 50
+UNDO_STACK = []
+REDO_STACK = []
+
+
+def visual_snapshot():
+    """Copy of every visual setting (never pause state or animation frames)."""
+    snap = {}
+    for key in DEFAULTS:
+        value = getattr(args, key)
+        if key == "cycle_exclusions":
+            value = [dict(item) for item in value]
+        snap[key] = value
+    snap["hue_hold_phase"] = args.hue_hold_phase
+    return snap
+
+
+def apply_visual_snapshot(snap, columns, status):
+    resync = snap["asynchronous"] != args.asynchronous
+    for key, value in snap.items():
+        if key == "cycle_exclusions":
+            value = [dict(item) for item in value]
+        setattr(args, key, value)
+    args.black_background = args.background == 'black'
+    # Re-anchor so the restored cycle_phase is what shows right now.
+    args.cycle_epoch = _cycle_time()
+    args.exclusion_mark = None
+    if resync:
+        for col in columns:
+            if col.stream:
+                col.stream.resync()
+    record_effective_settings()
+
+
+def do_undo(status, columns, sync):
+    if not UNDO_STACK:
+        status.show('Nothing to undo')
+        return
+    REDO_STACK.append(visual_snapshot())
+    apply_visual_snapshot(UNDO_STACK.pop(), columns, status)
+    message = f'Undo ({len(UNDO_STACK)} left)'
+    status.show(message)
+    if sync:
+        sync.publish(status.enabled, message=message)
+
+
+def do_redo(status, columns, sync):
+    if not REDO_STACK:
+        status.show('Nothing to redo')
+        return
+    UNDO_STACK.append(visual_snapshot())
+    apply_visual_snapshot(REDO_STACK.pop(), columns, status)
+    message = f'Redo ({len(REDO_STACK)} left)'
+    status.show(message)
+    if sync:
+        sync.publish(status.enabled, message=message)
+
+
+def _phase_label(phase):
+    return f'{hue_from_phase(phase):.0f}\u00b0'
+
+
+def mark_exclusion(status, sync):
+    """First press marks the start, second press excludes the traversed arc."""
+    if not args.color_cycle:
+        status.show('Exclusions need hue cycling — press c first')
+        return
+    mark = getattr(args, 'exclusion_mark', None)
+    here = current_display_phase()
+    if mark is None:
+        args.exclusion_mark = here
+        status.show(f'Exclusion start marked at {_phase_label(here)} — press x again at the end (X cancels)')
+        return
+    args.exclusion_mark = None
+    start, end = (mark, here) if args.cycle_direction != 'reverse' else (here, mark)
+    if abs(start - end) < 1e-6:
+        status.show('Exclusion discarded: start and end are the same hue')
+        return
+    next_id = max([item['id'] for item in args.cycle_exclusions] + [0]) + 1
+    candidate = args.cycle_exclusions + [{
+        'id': next_id, 'start': round(start, 6), 'end': round(end, 6),
+        'blend': 1.0, 'enabled': True}]
+    try:
+        args.cycle_exclusions = normalize_cycle_exclusions(candidate)
+    except ConfigError as exc:
+        status.show(f'Exclusion rejected: {exc}')
+        return
+    record_effective_settings()
+    message = (f'Excluded {_phase_label(start)}-{_phase_label(end)} '
+               f'(u undoes, X clears all)')
+    status.show(message)
+    if sync:
+        sync.publish(status.enabled, message=message)
+
+
+def clear_exclusions(status, sync):
+    args.exclusion_mark = None
+    if not args.cycle_exclusions:
+        status.show('No exclusions to clear')
+        return
+    args.cycle_exclusions = []
+    record_effective_settings()
+    message = 'All hue exclusions cleared — full spectrum restored (u undoes)'
+    status.show(message)
+    if sync:
+        sync.publish(status.enabled, message=message)
+
+
 def guard_binding_matches(key):
     binding = str(args.exit_guard.get('binding', 'Ctrl+Y'))
     if binding == 'Ctrl+Y':
@@ -646,6 +813,17 @@ def handle_key(screen, status, columns, sync):
     key = screen.getch()
     if key == -1:
         return False
+    before = visual_snapshot()
+    args._history_op = False
+    quit_requested = _dispatch_key(key, screen, status, columns, sync)
+    if not quit_requested and not args._history_op and visual_snapshot() != before:
+        UNDO_STACK.append(before)
+        del UNDO_STACK[:-UNDO_LIMIT]
+        REDO_STACK.clear()
+    return quit_requested
+
+
+def _dispatch_key(key, screen, status, columns, sync):
     guarded = bool(args.exit_guard.get('enabled', False))
     if guarded and guard_binding_matches(key):
         if sync:
@@ -685,6 +863,20 @@ def handle_key(screen, status, columns, sync):
             status.enabled = not status.enabled
         elif chr(key) not in SETTINGS_LOCK_ALLOWED_KEYS:
             return False
+    if key == ord('u'):
+        args._history_op = True
+        do_undo(status, columns, sync)
+        return False
+    if key == ord('U'):
+        args._history_op = True
+        do_redo(status, columns, sync)
+        return False
+    if key == ord('x') and not args.reduced_motion:
+        mark_exclusion(status, sync)
+        return False
+    if key == ord('X') and not args.reduced_motion:
+        clear_exclusions(status, sync)
+        return False
     if args.paused:
         return False
     if changed_color(key, status, columns, sync):
@@ -745,7 +937,7 @@ def handle_key(screen, status, columns, sync):
     elif key == ord('S'):
         record_effective_settings(); message = 'Settings saved for matrix-preset save NAME --from-last'; changed = True
     elif key == ord('?'):
-        status.show('p/P pause | h/H hue | Alt+arrows nudge | b background | w heads | Ctrl+L lock | q exit')
+        status.show('p/P pause | h hue hold | x/X exclude hue/clear | u/U undo/redo | r session reset | b bg | w heads | q exit')
     if changed:
         record_effective_settings()
         status.show(message)
