@@ -22,6 +22,20 @@ v0.9.0 source release and future work.
 - `matrix-lock quality balanced|high|battery` presets that switch rendering
   bundles (render mode, FPS cap, speed, density, trails, flashes) while never
   touching the selected color, hue cycling, white heads, or glyph size.
+- Custom hue-cycle editing: exclusion ranges ({id, start, end, blend,
+  enabled}, wrap-capable, overlap-merged, full-cycle rejection) carve
+  unwanted spectrum out of the automatic cycle; the retained endpoints are
+  bridged by configurable smoothstep-eased linear-light crossfades on a
+  deterministic precomputed path (terminal renderer + wallpaper
+  `cyclepath.js` verified color-identical). Live: `x` marks start/end at
+  the displayed hue (direction-aware, works paused), `X` clears, `u`/`U`
+  session undo/redo of intentional edits (bounded, redo cleared by new
+  edits), `r` session reset (undoable). CLI: `matrix-lock cycle show|reset`
+  and `cycle exclude add|list|remove|enable|disable|set-blend|clear`
+  (degrees map exactly onto the cycle; `--phase` for exact positions);
+  every change records an undoable history revision. Presets carry
+  exclusions; `matrix-lock configure --preset NAME` edits a saved preset
+  live with explicit update confirmation.
 - Named lock-screen presets: `matrix-lock preset save|list|show|apply|rename|
   delete` with friendly display names ("Neon Purple" ↔ `neon_purple.toml`
   under `lock-presets/`), full-fidelity visual capture (exact HEX/hue-cycle

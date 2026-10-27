@@ -31,6 +31,7 @@
 import QtQuick
 import QtQuick.Window
 import org.kde.plasma.plasmoid
+import "cyclepath.js" as CyclePath
 
 WallpaperItem {
     id: root
@@ -44,6 +45,13 @@ WallpaperItem {
     readonly property real cyclePeriod: Math.max(2.0, root.configuration.CyclePeriod)
     readonly property bool cycleReverse: root.configuration.CycleDirectionReverse
     readonly property real cycleEpoch: root.configuration.CycleEpoch
+    // Merged enabled hue exclusions ("start:end:blend;...") -> precomputed
+    // path; null means the unmodified full-spectrum cycle.
+    readonly property string cycleExclusions: String(root.configuration.CycleExclusions || "")
+    readonly property var cyclePath: CyclePath.buildPath(
+        CyclePath.parseGaps(cycleExclusions), cyclePeriod)
+    readonly property real cycleAnchorS: cyclePath === null
+        ? 0 : CyclePath.anchorFor(cyclePath, cyclePhase)
     readonly property int speed: Math.max(1, Math.min(100, root.configuration.Speed))
     readonly property int density: Math.max(1, Math.min(100, root.configuration.Density))
     readonly property int trailMin: Math.max(4, root.configuration.TrailMin)
@@ -248,7 +256,14 @@ WallpaperItem {
 
     function updateTrailColors() {
         let base, key
-        if (colorCycle) {
+        if (colorCycle && cyclePath !== null) {
+            const sign = cycleReverse ? -1.0 : 1.0
+            const seconds = cycleAnchorS
+                + sign * (((Date.now() - hueDebtMs) / 1000.0) - cycleEpoch)
+            base = CyclePath.colorAt(cyclePath, seconds, cycleRgb)
+            key = "cpath:" + base[0] + "," + base[1] + "," + base[2] + ":" + fadeLevels
+            if (key === trailKey) return
+        } else if (colorCycle) {
             const phase = currentPhase()
             key = "cycle:" + Math.floor(phase * 720) + ":" + fadeLevels
             if (key === trailKey) return

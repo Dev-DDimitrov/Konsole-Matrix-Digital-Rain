@@ -29,7 +29,12 @@ select exact colors, `capture-hue` imports a hue held with `h`,
 colors, `preset save|list|show|apply|rename|delete` manages named user
 presets ("Neon Purple" keeps its friendly name; built-ins are read-only and
 applying never touches resource protection), and `history`/`undo`/`restore`
-provide reversible configuration rollback. Adaptive resource protection (on by default, `[resource_guard]` in
+provide reversible configuration rollback. The automatic hue cycle is
+customizable: press `x` twice in `matrix-lock configure` to exclude the
+traversed hue range (u/U undo/redo live edits, X clears), or use
+`matrix-lock cycle exclude add 45 105` numerically; excluded ranges are
+bridged by short smooth crossfades, presets carry them, and
+`matrix-lock configure --preset NAME` edits a saved preset live. Adaptive resource protection (on by default, `[resource_guard]` in
 config.toml for the terminal, `matrix-lock set resource-guard`/`guard-*` for
 the lock screen) freezes the animation while overall system CPU or memory
 use is excessive and resumes it automatically; it never overrides a manual

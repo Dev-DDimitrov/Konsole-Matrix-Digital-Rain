@@ -17,12 +17,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import matrix_lockscreen as lock
 import matrix_resource_guard as resource_guard
 from matrix_config import (
+    CYCLE_BLEND_DEFAULT,
     COLORS,
     ConfigError,
     LAST_EFFECTIVE_PATH,
     PRESETS,
+    build_cycle_path,
     clamp,
+    enabled_cycle_gaps,
+    hue_from_phase,
     load_user_presets,
+    normalize_cycle_exclusions,
+    phase_from_hue,
 )
 from matrix_guide_data import PRESET_DESCRIPTIONS
 
@@ -166,12 +172,20 @@ def cmd_preview(args):
     return _run_terminal_preview(values)
 
 
-def cmd_configure(_args):
-    values = lock.load_profile()
-    print("Lock-screen configuration session")
-    print("  - Use the normal Matrix controls (h holds a hue, Alt+arrows nudge, w heads, d/D density...).")
+def cmd_configure(args):
+    preset_name = " ".join(args.preset) if getattr(args, "preset", None) else None
+    if preset_name:
+        values, canonical = lock.apply_preset(lock.load_profile(), preset_name)
+        if lock.normalize_preset_name(preset_name) not in lock.load_lock_presets():
+            print(f"note: '{canonical}' is not a named user preset; edits can be saved as a new one")
+        print(f"Lock-screen configuration session — editing preset '{preset_name}'")
+        print("  The saved preset stays untouched until you explicitly choose to update it.")
+    else:
+        values = lock.load_profile()
+        print("Lock-screen configuration session")
+    print("  - Use the normal Matrix controls (h holds a hue, x marks a hue exclusion,")
+    print("    u/U undo/redo, X clears exclusions, r resets the session, ? shows keys).")
     print("  - Exit with q when the preview looks right.")
-    print("  - You will then be asked whether to save it as the lock-screen profile.")
     if values["color"] not in COLORS and not values["color_cycle"]:
         print(f"  - note: exact color {values['color']} previews as the nearest spectrum hue.")
     time.sleep(2.0)
@@ -184,8 +198,32 @@ def cmd_configure(_args):
     captured = lock.import_last_effective()
     print("\nCaptured effective settings:")
     print(f"  {lock.summarize(captured)}")
+    if captured["cycle_exclusions"]:
+        print(f"  hue exclusions: {lock.describe_exclusions(captured['cycle_exclusions'])}")
     if not sys.stdin.isatty():
         print("Non-interactive session: not saving. Use matrix-lock save --from-last to apply.")
+        return 0
+    if preset_name:
+        print("Save this look as:")
+        print(f"  [1] update preset \"{preset_name}\"")
+        print("  [2] a new named preset")
+        print("  [3] my active lock-screen configuration")
+        print(f"  [4] both: active configuration + preset \"{preset_name}\"")
+        print("  [5] discard (default)")
+        choice = input("Choice [1-5]: ").strip()
+        if choice in ("1", "4"):
+            answer = input(f"Update preset '{preset_name}'? [y/N] ").strip().lower()
+            if answer in ("y", "yes"):
+                canonical = lock.save_lock_preset(preset_name, captured, force=True)
+                print(f"updated preset '{preset_name}' ({canonical})")
+            else:
+                print(f"preset '{preset_name}' left unchanged")
+        if choice == "2":
+            _save_captured_as_preset(captured)
+        if choice in ("3", "4"):
+            _save(captured, note=f"matrix-lock configure --preset {preset_name}")
+        if choice not in ("1", "2", "3", "4"):
+            print("Discarded; nothing was saved.")
         return 0
     print("Save this look as:")
     print("  [1] my active lock-screen configuration")
@@ -223,6 +261,113 @@ def _save_captured_as_preset(captured):
             return
         except ConfigError as exc:
             print(f"cannot save preset: {exc}")
+
+
+def _format_exclusion_row(item):
+    from_label = f"{hue_from_phase(item['start']):6.1f}\N{DEGREE SIGN} ({item['start']:.6f})"
+    to_label = f"{hue_from_phase(item['end']):6.1f}\N{DEGREE SIGN} ({item['end']:.6f})"
+    state = "yes" if item["enabled"] else "no"
+    return f"{item['id']:>3}  {from_label:<22} {to_label:<22} {item['blend']:>5.2f}s  {state}"
+
+
+def _print_cycle_summary(values):
+    exclusions = values["cycle_exclusions"]
+    try:
+        gaps = enabled_cycle_gaps(exclusions)
+    except ConfigError as exc:
+        print(f"  (invalid exclusion set: {exc})")
+        return
+    if not gaps:
+        print("  full spectrum: no enabled exclusions; the cycle is unchanged")
+        return
+    path = build_cycle_path(exclusions, values["cycle_period"])
+    visible = 1.0 - sum(((end - start) % 1.0) or 1.0 for start, end, _ in gaps)
+    print(f"  visible spectrum: {visible * 100:.0f}% | loop duration: "
+          f"{path['total']:.1f}s (period {values['cycle_period']:g}s, "
+          f"{len(gaps)} gap(s) bridged)")
+
+
+def cmd_cycle(args):
+    values = lock.load_profile()
+    command = args.cycle_command
+    if command == "show":
+        state = "on" if values["color_cycle"] else "off"
+        print(f"hue cycling: {state} | period {values['cycle_period']:g}s | "
+              f"direction {values['cycle_direction']} | anchor phase {values['cycle_phase']:.6f}")
+        if values["cycle_exclusions"]:
+            print(" ID  FROM                   TO                     BLEND  ENABLED")
+            for item in values["cycle_exclusions"]:
+                print(_format_exclusion_row(item))
+        else:
+            print("  (no exclusions)")
+        _print_cycle_summary(values)
+        print("Degrees map exactly onto the cycle (its spectrum spans hue 120\N{DEGREE SIGN} "
+              "through the wheel and back); --phase accepts exact 0-1 positions.")
+        return 0
+    if command == "reset":
+        if not values["cycle_exclusions"]:
+            print("cycle customization is already at defaults (no exclusions)")
+            return 0
+        values["cycle_exclusions"] = []
+        print("cycle customization reset: all exclusions removed, full spectrum restored")
+        print("(matrix-lock undo restores the previous customization)")
+        _save(values, note="matrix-lock cycle reset")
+        return 0
+    # exclude subcommands
+    sub = args.exclude_command
+    exclusions = [dict(item) for item in values["cycle_exclusions"]]
+    if sub == "list":
+        if exclusions:
+            print(" ID  FROM                   TO                     BLEND  ENABLED")
+            for item in exclusions:
+                print(_format_exclusion_row(item))
+        else:
+            print("(no exclusions)")
+        _print_cycle_summary(values)
+        return 0
+    if sub == "add":
+        if args.phase:
+            try:
+                start, end = float(args.start) % 1.0, float(args.end) % 1.0
+            except ValueError as exc:
+                raise ConfigError(f"--phase values must be numbers 0-1: {exc}") from exc
+        else:
+            start, end = phase_from_hue(args.start), phase_from_hue(args.end)
+        blend = CYCLE_BLEND_DEFAULT if args.blend is None else float(args.blend)
+        exclusions.append({"start": start, "end": end, "blend": blend, "enabled": True})
+        values["cycle_exclusions"] = normalize_cycle_exclusions(exclusions)
+        created = values["cycle_exclusions"][-1]
+        print(f"added exclusion #{created['id']}: "
+              f"{hue_from_phase(created['start']):.1f}\N{DEGREE SIGN} -> "
+              f"{hue_from_phase(created['end']):.1f}\N{DEGREE SIGN} "
+              f"(phases {created['start']:.6f} -> {created['end']:.6f}, "
+              f"blend {created['blend']:g}s)")
+    elif sub == "clear":
+        if not exclusions:
+            print("(no exclusions to clear)")
+            return 0
+        values["cycle_exclusions"] = []
+        print("all exclusions removed (matrix-lock undo restores them)")
+    else:
+        target = next((item for item in exclusions if item["id"] == args.id), None)
+        if target is None:
+            raise ConfigError(f"no exclusion with id {args.id} (matrix-lock cycle exclude list)")
+        if sub == "remove":
+            exclusions.remove(target)
+            print(f"removed exclusion #{args.id}")
+        elif sub == "enable":
+            target["enabled"] = True
+            print(f"enabled exclusion #{args.id}")
+        elif sub == "disable":
+            target["enabled"] = False
+            print(f"disabled exclusion #{args.id}")
+        elif sub == "set-blend":
+            target["blend"] = float(args.seconds)
+            print(f"exclusion #{args.id} blend -> {float(args.seconds):g}s")
+        values["cycle_exclusions"] = normalize_cycle_exclusions(exclusions)
+    _save(values, note=f"matrix-lock cycle exclude {sub}")
+    _print_cycle_summary(values)
+    return 0
 
 
 def cmd_quality(args):
@@ -419,7 +564,9 @@ def main():
         epilog="The lock-screen profile is independent from the terminal Matrix profile. "
                "Workflow: matrix-lock configure -> adjust -> save; matrix-lock enable activates it.")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("configure", help="live terminal preview session; offers to save on exit")
+    configure = sub.add_parser("configure", help="live terminal preview session; offers to save on exit")
+    configure.add_argument("--preset", nargs="+", default=None, metavar="NAME",
+                           help="start from a named preset and offer to update it on exit")
     preview = sub.add_parser("preview", help="preview the current lock profile")
     preview.add_argument("--greeter", action="store_true",
                          help="run the real KDE greeter in safe --testing mode")
@@ -431,6 +578,35 @@ def main():
     setter.add_argument("key")
     setter.add_argument("value")
     sub.add_parser("capture-hue", help="capture the most recently held hue from a Matrix session")
+    cycle = sub.add_parser(
+        "cycle",
+        help="customize the automatic hue cycle (exclude ranges, blends)",
+        description="Exclude parts of the hue cycle; the retained endpoints are bridged by a "
+                    "short, smooth crossfade. START/END are hue degrees by default (they map "
+                    "exactly onto the cycle); pass --phase for exact 0-1 cycle positions. "
+                    "Every change saves a history revision, so matrix-lock undo reverses it.")
+    cycle_sub = cycle.add_subparsers(dest="cycle_command", required=True)
+    cycle_sub.add_parser("show", help="cycling state, exclusions, and the blended path summary")
+    cycle_sub.add_parser("reset", help="remove all cycle customization (undo: matrix-lock undo)")
+    exclude = cycle_sub.add_parser("exclude", help="manage excluded hue ranges")
+    exclude_sub = exclude.add_subparsers(dest="exclude_command", required=True)
+    exclude_add = exclude_sub.add_parser("add", help="exclude a range, e.g. add 45 105 (degrees)")
+    exclude_add.add_argument("start")
+    exclude_add.add_argument("end")
+    exclude_add.add_argument("--phase", action="store_true",
+                             help="interpret START and END as exact cycle phases (0-1)")
+    exclude_add.add_argument("--blend", type=float, default=None,
+                             help="bridge crossfade duration in seconds (default 1.0)")
+    exclude_sub.add_parser("list", help="list exclusions with ids, degrees, phases, blends")
+    for name, help_text in (("remove", "delete one exclusion by id"),
+                            ("enable", "re-enable one exclusion by id"),
+                            ("disable", "keep one exclusion but stop applying it")):
+        entry = exclude_sub.add_parser(name, help=help_text)
+        entry.add_argument("id", type=int)
+    exclude_sub.add_parser("clear", help="remove every exclusion")
+    set_blend = exclude_sub.add_parser("set-blend", help="change one exclusion's crossfade seconds")
+    set_blend.add_argument("id", type=int)
+    set_blend.add_argument("seconds", type=float)
     quality = sub.add_parser("quality", help="show or apply a rendering quality preset (balanced/high/battery)")
     quality.add_argument("name", nargs="?", default=None)
     preset = sub.add_parser(
@@ -470,7 +646,7 @@ def main():
         "configure": cmd_configure, "preview": cmd_preview, "save": cmd_save,
         "show": cmd_show, "set": cmd_set, "capture-hue": cmd_capture_hue,
         "quality": cmd_quality,
-        "preset": cmd_preset, "history": cmd_history, "undo": cmd_undo,
+        "preset": cmd_preset, "cycle": cmd_cycle, "history": cmd_history, "undo": cmd_undo,
         "restore": cmd_restore, "enable": cmd_enable, "disable": cmd_disable,
         "status": cmd_status, "doctor": cmd_doctor,
     }

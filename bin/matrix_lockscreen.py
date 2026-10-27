@@ -32,6 +32,7 @@ from matrix_config import (
     hue_degrees_rgb,
     load_last_effective,
     load_user_presets,
+    hue_from_phase,
     nearest_cycle_phase,
     normalize_cycle_exclusions,
     normalize_preset_name,
@@ -189,6 +190,17 @@ def validate(values):
         merged["flashers"] = False
         merged["mutation_rate"] = 0.0
     return merged
+
+
+def describe_exclusions(exclusions):
+    """One-line human summary of an exclusion list (degrees and blends)."""
+    parts = []
+    for item in exclusions:
+        state = "" if item.get("enabled", True) else " (disabled)"
+        parts.append(f"#{item['id']} {hue_from_phase(item['start']):.0f}\N{DEGREE SIGN}"
+                     f"->{hue_from_phase(item['end']):.0f}\N{DEGREE SIGN}"
+                     f" blend {item['blend']:g}s{state}")
+    return "; ".join(parts) if parts else "none"
 
 
 def effective_fixed_rgb(values):

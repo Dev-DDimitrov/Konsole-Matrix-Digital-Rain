@@ -412,5 +412,68 @@ class NamedLockPresetTests(Isolated):
                 lock.save_lock_preset(bad, self.exact_profile())
 
 
+class CycleExclusionProfileTests(Isolated):
+    EXCLUSION = {"start": 0.2, "end": 0.45, "blend": 1.5, "enabled": True}
+
+    def test_validate_normalizes_and_assigns_ids(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        self.assertEqual(values["cycle_exclusions"][0]["id"], 1)
+        with self.assertRaises(lock.ConfigError):
+            lock.validate({"cycle_exclusions": [{"start": 0.0, "end": 0.97}]})
+
+    def test_validate_accepts_compact_string(self):
+        values = lock.validate({"cycle_exclusions": "0.2:0.45:1.5"})
+        self.assertAlmostEqual(values["cycle_exclusions"][0]["end"], 0.45)
+
+    def test_export_contains_merged_enabled_gaps(self):
+        values = lock.validate({"cycle_exclusions": [
+            dict(self.EXCLUSION),
+            {"start": 0.6, "end": 0.7, "blend": 1.0, "enabled": False}]})
+        exported = lock.export_assignments(values, epoch=123.0)
+        self.assertEqual(exported["CycleExclusions"], "0.200000:0.450000:1.500")
+        values["cycle_exclusions"] = []
+        self.assertEqual(lock.export_assignments(values, epoch=1.0)["CycleExclusions"], "")
+
+    def test_profile_round_trip_persists_exclusions(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        lock.save_profile(values, note="with exclusions")
+        loaded = lock.load_profile()
+        self.assertEqual(loaded["cycle_exclusions"], values["cycle_exclusions"])
+
+    def test_named_presets_carry_exclusions_but_never_guard(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        lock.save_lock_preset("Skip Blue", values)
+        current = lock.validate({"guard_cpu_pause": 90})
+        applied, _ = lock.apply_preset(current, "Skip Blue")
+        self.assertAlmostEqual(applied["cycle_exclusions"][0]["start"], 0.2)
+        self.assertEqual(applied["guard_cpu_pause"], 90)
+        text = (self.root / "lock-presets/skip_blue.toml").read_text(encoding="utf-8")
+        self.assertIn("cycle_exclusions", text)
+        self.assertNotIn("guard_", text)
+
+    def test_quality_presets_do_not_touch_exclusions(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        for name in ("balanced", "high", "battery"):
+            bundled, _ = lock.apply_quality(dict(values), name)
+            self.assertEqual(bundled["cycle_exclusions"], values["cycle_exclusions"])
+
+    def test_preview_arguments_round_trip_exclusions(self):
+        values = lock.validate({"cycle_exclusions": [
+            dict(self.EXCLUSION),
+            {"start": 0.6, "end": 0.7, "blend": 1.0, "enabled": False}]})
+        arguments = lock.renderer_preview_arguments(values)
+        self.assertIn("--cycle-exclusions", arguments)
+        compact = arguments[arguments.index("--cycle-exclusions") + 1]
+        from matrix_config import parse_cycle_exclusions
+        parsed = parse_cycle_exclusions(compact)
+        self.assertEqual(len(parsed), 2)
+        self.assertFalse(parsed[1]["enabled"])
+
+    def test_from_terminal_values_imports_exclusions(self):
+        values = lock.from_terminal_values(
+            {"color": "green", "cycle_exclusions": [dict(self.EXCLUSION)]})
+        self.assertAlmostEqual(values["cycle_exclusions"][0]["blend"], 1.5)
+
+
 if __name__ == "__main__":
     unittest.main()

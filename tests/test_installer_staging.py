@@ -212,6 +212,39 @@ class InstalledCliRegressionTests(unittest.TestCase):
         self.assertIn("color_cycle = True", out)
         self.cli("matrix-lock", "set", "color-cycle", "off")
 
+    def test_cycle_exclusion_cli_via_installed_commands(self):
+        self.cli("matrix-lock", "cycle", "--help")
+        out = self.cli("matrix-lock", "cycle", "exclude", "add", "45", "105",
+                       "--blend", "1.5")
+        self.assertIn("added exclusion #", out)
+        out = self.cli("matrix-lock", "cycle", "exclude", "list")
+        self.assertIn("45.0", out)
+        self.assertIn("1.50s", out)
+        self.assertIn("visible spectrum", out)
+        out = self.cli("matrix-lock", "cycle", "exclude", "add", "0.6", "0.7",
+                       "--phase")
+        self.assertIn("phases 0.600000 -> 0.700000", out)
+        out = self.cli("matrix-lock", "show")
+        self.assertIn("cycle_exclusions", out)
+        # Invalid input and full-cycle rejection surface as clean errors.
+        result = self.cli("matrix-lock", "cycle", "exclude", "add", "x", "y",
+                          expect_ok=False)
+        self.assertIn("hue must be a number", result)
+        result = self.cli("matrix-lock", "cycle", "exclude", "add", "0.0", "0.97",
+                          "--phase", expect_ok=False)
+        self.assertIn("must remain", result)
+        listing = self.cli("matrix-lock", "cycle", "exclude", "list")
+        first_row = next(line for line in listing.splitlines() if "45.0" in line)
+        self.assertEqual(first_row.split()[0], "1")
+        self.cli("matrix-lock", "cycle", "exclude", "disable", "1")
+        self.cli("matrix-lock", "cycle", "exclude", "set-blend", "1", "2.5")
+        out = self.cli("matrix-lock", "cycle", "reset")
+        self.assertIn("full spectrum restored", out)
+        out = self.cli("matrix-lock", "undo")
+        out = self.cli("matrix-lock", "cycle", "exclude", "list")
+        self.assertIn("2.50s", out)       # history undo restored the exclusions
+        self.cli("matrix-lock", "cycle", "reset")
+
     def test_other_entry_points_start_from_install(self):
         self.cli("matrix-settings", "--help")
         self.cli("matrix-preset", "--help")

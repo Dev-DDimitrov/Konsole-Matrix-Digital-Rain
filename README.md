@@ -136,6 +136,24 @@ history: `matrix-lock history`, `matrix-lock undo`, and
 `matrix-lock restore REV` provide reversible configuration rollback, separate
 from installation rollback. `matrix-guide --lock` documents the full surface.
 
+The automatic hue cycle is customizable: unwanted spectrum ranges can be
+excluded, and the retained endpoints are bridged by a short, smoothstep-eased
+linear-light crossfade (the omitted range is never traversed; a crossfade
+briefly passes through desaturated midpoints rather than foreign hues).
+Visually, run `matrix-lock configure`, enable cycling with `c`, press `x`
+when the unwanted range begins and `x` again when it ends — `u`/`U` undo and
+redo any visual edit (session-local, bounded, cleared by a new edit after
+undo), `X` clears all exclusions, and `r` resets the whole editing session;
+nothing persists until saving. Numerically: `matrix-lock cycle exclude add
+45 105` (hue degrees map exactly onto the cycle; `--phase` takes exact 0-1
+positions, `--blend` sets the crossfade seconds), plus `list`, `remove ID`,
+`enable`/`disable ID`, `set-blend ID SECS`, `clear`, and `matrix-lock cycle
+reset` — every change records a history revision, so `matrix-lock undo`
+reverses it. Exclusions are visual state: presets carry them, reverse
+cycling honors them, all monitors derive the identical blended path from the
+exported configuration, and the GPU renderer's per-tick cost is unchanged
+(the path is precomputed once per configuration change).
+
 Favorite looks become named presets: `matrix-lock preset save "Neon Purple"`
 captures the current visual configuration — exact HEX color or hue-cycle
 state, pacing, density, trails, white heads, fades, mutation, flashes,
@@ -147,7 +165,10 @@ history revision (`matrix-lock undo` restores the previous appearance), and
 built-ins are read-only. Presets never contain resource-protection settings,
 so applying one cannot change the adaptive guard. Ending a
 `matrix-lock configure` session offers saving the captured look as the
-active configuration, a named preset, or both.
+active configuration, a named preset, or both; `matrix-lock configure
+--preset NAME` opens a saved preset for live editing and offers updating it
+(with confirmation), forking it, applying it, or discarding — the stored
+preset is untouched until a save is confirmed.
 
 Rendering differences are disclosed rather than hidden: the default `auto`
 render mode draws through a GPU fragment shader (a white glyph atlas plus a
