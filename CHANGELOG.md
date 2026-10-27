@@ -70,6 +70,12 @@ v0.9.0 source release and future work.
   renderer options `--cycle-phase` and `--hue-hold` used by lock previews.
 - `matrix-guide --lock` section; lock-screen checks in `matrix-doctor` and
   `matrix-lock doctor`; lock-screen test suite (`tests/test_lockscreen.py`).
+- Curated genuine screenshots and an animated demo of this project's own
+  rendered output (`docs/media/`), with a redesigned README project page
+  built around them (no private machine data or franchise-owned artwork,
+  fulfilling the v0.9.0 note about curated media).
+- `RELEASE-READINESS.md`: the audited release-gate record for the current
+  candidate, including the completed physical acceptance checks.
 
 ### Changed
 
@@ -83,10 +89,9 @@ v0.9.0 source release and future work.
 
 - Command-list regression tests now include `matrix-help`, which was added
   in v0.9.0 without updating the pinned expectations.
-
-- Continue KDE/Wayland acceptance testing and maintenance after v0.9.0.
-- Add curated screenshots or terminal recordings only when they contain no
-  private machine data or franchise-owned artwork.
+- The v0.9.0 future-work notes were stranded under this Fixed heading; the
+  remaining open item (continued KDE/Wayland acceptance testing and
+  maintenance) now lives in `RELEASE-READINESS.md`.
 
 ## [0.9.0] - 2026-09-06
 

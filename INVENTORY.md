@@ -25,6 +25,7 @@ Initial public release: **v0.9.0**.
 | `bin/matrix*` | User-facing launcher wrappers and display controllers. |
 | `bin/unimatrix-fade*` | Local renderer entry points; not copies of the external UniMatrix executable. |
 | `config/config.toml.example` | Non-destructive first-install configuration example. |
+| `docs/media/` | Curated genuine screenshots and demo captures of this project's own output. |
 | `konsole/` | Matrix-owned Konsole profiles and color schemes. |
 | `bin/matrix_resource_guard.py` | Adaptive resource-protection metrics and hysteresis logic. |
 | `scripts/install.sh` | User-level installation with dry-run and manifest safeguards. |
@@ -57,8 +58,9 @@ released under `GPL-3.0-or-later`. UniMatrix states that it is based on CMatrix
 by Chris Allegretta and Abishek V. Ashok. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the renderer header.
 
-The external installed UniMatrix executable, retained audit checkout, upstream
-fonts, screenshots, and media are not part of this repository.
+The external installed UniMatrix executable, retained audit checkout, and
+upstream fonts, screenshots, and media are not part of this repository. The
+captures under `docs/media/` are this project's own rendered output.
 
 ## Intentional exclusions
 
