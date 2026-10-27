@@ -157,6 +157,11 @@ class InstalledCliRegressionTests(unittest.TestCase):
         history = lock_dir / "lockscreen-history"
         history.mkdir()
         (history / "20260101-000000.toml").write_text("[lockscreen]\n", encoding="utf-8")
+        lock_presets = lock_dir / "lock-presets"
+        lock_presets.mkdir()
+        (lock_presets / "existing_keeper.toml").write_text(
+            'display_name = "Existing Keeper"\n[lockscreen]\ncolor = "#112233"\n',
+            encoding="utf-8")
         backup_dir = cls.data_home / "konsole-matrix-digital-rain"
         backup_dir.mkdir(parents=True)
         (backup_dir / "lockscreen-wallpaper-backup.json").write_text("{}", encoding="utf-8")
@@ -219,8 +224,48 @@ class InstalledCliRegressionTests(unittest.TestCase):
         self.assertEqual((lock_dir / "config.toml").read_text(encoding="utf-8"),
                          "speed = 77\n")
         self.assertTrue((lock_dir / "lockscreen-history/20260101-000000.toml").is_file())
+        self.assertIn("Existing Keeper",
+                      (lock_dir / "lock-presets/existing_keeper.toml").read_text(encoding="utf-8"))
         backup = self.data_home / "konsole-matrix-digital-rain/lockscreen-wallpaper-backup.json"
         self.assertEqual(backup.read_text(encoding="utf-8"), "{}")
+
+    def test_named_preset_manager_via_installed_cli(self):
+        # Fresh processes per command also prove on-disk persistence.
+        self.cli("matrix-lock", "preset", "--help")
+        self.cli("matrix-lock", "set", "color", "#8B5CF6")
+        out = self.cli("matrix-lock", "preset", "save", "Neon", "Purple")
+        self.assertIn("neon_purple", out)
+        out = self.cli("matrix-lock", "preset", "list")
+        self.assertIn("BUILT-IN PRESETS", out)
+        self.assertIn("USER PRESETS", out)
+        self.assertLess(out.index("BUILT-IN PRESETS"), out.index("USER PRESETS"))
+        self.assertIn("Neon Purple", out)
+        self.assertIn("cinematic", out)
+        out = self.cli("matrix-lock", "preset", "show", "Neon", "Purple")
+        self.assertIn("#8b5cf6", out)
+        # Duplicate save needs --force; built-ins are read-only.
+        result = self.cli("matrix-lock", "preset", "save", "Neon", "Purple", expect_ok=False)
+        self.assertIn("already exists", result)
+        result = self.cli("matrix-lock", "preset", "delete", "cinematic", expect_ok=False)
+        self.assertIn("built-in", result)
+        # Change appearance, apply the preset back, undo restores.
+        self.cli("matrix-lock", "set", "color", "green")
+        out = self.cli("matrix-lock", "preset", "apply", "Neon", "Purple")
+        self.assertIn("resource-protection settings untouched", out)
+        out = self.cli("matrix-lock", "show")
+        self.assertIn("#8b5cf6", out)
+        self.assertIn("resource_guard = True", out)
+        self.cli("matrix-lock", "undo")
+        out = self.cli("matrix-lock", "show")
+        self.assertIn("color = green", out)
+        out = self.cli("matrix-lock", "preset", "rename", "Neon Purple", "Violet")
+        self.assertIn("violet", out)
+        out = self.cli("matrix-lock", "preset", "list")
+        self.assertIn("Violet", out)
+        self.assertNotIn("Neon Purple", out)
+        self.cli("matrix-lock", "preset", "delete", "Violet")
+        out = self.cli("matrix-lock", "preset", "list")
+        self.assertNotIn("Violet", out)
 
 
 if __name__ == "__main__":

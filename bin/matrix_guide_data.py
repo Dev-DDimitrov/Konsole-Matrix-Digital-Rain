@@ -25,6 +25,15 @@ COMMANDS = (
 
 
 # Lock-screen workflow reference presented by matrix-guide --lock.
+PRESET_DESCRIPTIONS = {
+    "cinematic": "default high-quality green Matrix look",
+    "classic": "traditional UniMatrix/CMatrix-inspired appearance",
+    "ambient": "slower, lower-intensity rainfall",
+    "dense": "denser rainfall",
+    "minimal": "sparse and subtle rainfall",
+    "cyber": "cyan-oriented colorful cycling preset",
+}
+
 LOCK_COMMANDS = (
     ("matrix-lock configure", "live preview with normal Matrix controls; offers to save on exit"),
     ("matrix-lock preview [--greeter]", "preview the profile; --greeter runs the real KDE greeter in safe testing mode"),
@@ -34,7 +43,9 @@ LOCK_COMMANDS = (
     ("matrix-lock set color \"#8B5CF6\"", "set an exact HEX color or a named Matrix color"),
     ("matrix-lock set color-cycle on|off", "enable or disable automatic hue cycling"),
     ("matrix-lock capture-hue", "capture the hue most recently held with h in a Matrix session"),
-    ("matrix-lock preset list|apply NAME", "apply built-in or user Matrix presets to the lock profile"),
+    ("matrix-lock preset save \"Neon Purple\"", "save the current look as a named preset (friendly names kept)"),
+    ("matrix-lock preset list|show|apply NAME", "named presets; built-ins stay read-only, undo reverses apply"),
+    ("matrix-lock preset rename OLD NEW", "rename a user preset; delete NAME removes one"),
     ("matrix-lock quality [NAME]", "show or apply a rendering preset (balanced/high/battery); colors stay untouched"),
     ("matrix-lock set resource-guard on|off", "auto-freeze the animation while system CPU/memory use is excessive"),
     ("matrix-lock set guard-cpu-pause 85", "guard thresholds: guard-mem-pause, guard-cpu/mem-resume, guard-pause/resume-secs"),

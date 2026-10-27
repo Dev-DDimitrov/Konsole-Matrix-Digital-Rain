@@ -26,8 +26,10 @@ independent profile: `configure` opens a live preview with the
 normal Matrix controls and offers to save on exit, `set hue`/`set color`
 select exact colors, `capture-hue` imports a hue held with `h`,
 `quality balanced|high|battery` switches rendering bundles without touching
-colors, and `history`/`undo`/`restore` provide reversible configuration
-rollback. Adaptive resource protection (on by default, `[resource_guard]` in
+colors, `preset save|list|show|apply|rename|delete` manages named user
+presets ("Neon Purple" keeps its friendly name; built-ins are read-only and
+applying never touches resource protection), and `history`/`undo`/`restore`
+provide reversible configuration rollback. Adaptive resource protection (on by default, `[resource_guard]` in
 config.toml for the terminal, `matrix-lock set resource-guard`/`guard-*` for
 the lock screen) freezes the animation while overall system CPU or memory
 use is excessive and resumes it automatically; it never overrides a manual

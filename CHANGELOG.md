@@ -22,6 +22,16 @@ v0.9.0 source release and future work.
 - `matrix-lock quality balanced|high|battery` presets that switch rendering
   bundles (render mode, FPS cap, speed, density, trails, flashes) while never
   touching the selected color, hue cycling, white heads, or glyph size.
+- Named lock-screen presets: `matrix-lock preset save|list|show|apply|rename|
+  delete` with friendly display names ("Neon Purple" ↔ `neon_purple.toml`
+  under `lock-presets/`), full-fidelity visual capture (exact HEX/hue-cycle
+  state, pacing, trails, heads, fades, background, render mode), read-only
+  built-ins, explicit `--force` replacement, atomic 0600 writes, persistence
+  independent of the bounded revision history, and apply-creates-a-revision
+  so `matrix-lock undo` restores the previous appearance. Presets never
+  include resource-protection settings. `matrix-lock configure` now offers
+  saving a captured look as the active configuration, a named preset, or
+  both.
 - Adaptive resource protection for both renderers
   (`bin/matrix_resource_guard.py`, mirrored in the wallpaper's `guard.js`):
   the animation freezes its current frame while aggregate CPU or

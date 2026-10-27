@@ -32,6 +32,7 @@ class Isolated(unittest.TestCase):
             patch.object(lock, "WALLPAPER_BACKUP_PATH", root / "backup.json"),
             patch.object(lock, "KSCREENLOCKERRC", root / "kscreenlockerrc"),
             patch.object(lock, "PLUGIN_DIR", PLUGIN_ROOT),
+            patch.object(lock, "LOCK_PRESET_DIR", root / "lock-presets"),
         ]
         for item in self._patches:
             item.start()
@@ -317,6 +318,98 @@ class CliTests(Isolated):
                 with self.assertRaises(SystemExit) as caught:
                     cli.main()
                 self.assertNotEqual(caught.exception.code, 0)
+
+
+class NamedLockPresetTests(Isolated):
+    def exact_profile(self):
+        values = lock.validate({})
+        values = lock.set_color(values, "#8B5CF6")
+        values["speed"] = 88
+        values["white_head_rate"] = 40
+        return lock.validate(values)
+
+    def test_save_show_and_exact_hue_roundtrip(self):
+        values = self.exact_profile()
+        canonical = lock.save_lock_preset("Neon Purple", values)
+        self.assertEqual(canonical, "neon_purple")
+        entry = lock.load_lock_presets()["neon_purple"]
+        self.assertEqual(entry["display_name"], "Neon Purple")
+        self.assertEqual(entry["values"]["color"], "#8b5cf6")  # exact hex kept
+        self.assertEqual(entry["values"]["speed"], 88)
+
+    def test_apply_preserves_guard_settings_and_creates_history(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        current, _ = lock.save_profile(lock.validate({"guard_cpu_pause": 92,
+                                                      "resource_guard": False}),
+                                       note="before")
+        applied, canonical = lock.apply_preset(current, "neon purple")
+        self.assertEqual(canonical, "neon_purple")
+        self.assertEqual(applied["color"], "#8b5cf6")
+        # Visual preset must never touch protection settings.
+        self.assertFalse(applied["resource_guard"])
+        self.assertEqual(applied["guard_cpu_pause"], 92)
+        # Saving the applied values yields a history revision undo can use:
+        # the pre-apply (green) appearance stays restorable.
+        lock.save_profile(applied, note="matrix-lock preset apply neon_purple")
+        revisions = lock.history_entries()
+        self.assertGreaterEqual(len(revisions), 2)
+        colors = [entry["color"] for _, entry in revisions]
+        self.assertIn("green", colors)
+        self.assertIn("#8b5cf6", colors)
+
+    def test_preset_files_do_not_contain_guard_keys(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        text = (self.root / "lock-presets/neon_purple.toml").read_text(encoding="utf-8")
+        self.assertNotIn("guard_", text)
+        self.assertNotIn("resource_guard", text)
+
+    def test_duplicate_requires_force(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        with self.assertRaisesRegex(lock.ConfigError, "already exists"):
+            lock.save_lock_preset("neon-purple", self.exact_profile())
+        lock.save_lock_preset("Neon Purple", self.exact_profile(), force=True)
+
+    def test_builtins_are_read_only(self):
+        for operation in (
+            lambda: lock.save_lock_preset("cinematic", self.exact_profile(), force=True),
+            lambda: lock.delete_lock_preset("ambient"),
+            lambda: lock.rename_lock_preset("cyber", "mine"),
+            lambda: lock.rename_lock_preset("mine", "dense"),
+        ):
+            with self.assertRaisesRegex(lock.ConfigError, "built-in"):
+                operation()
+
+    def test_rename_and_delete(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        canonical = lock.rename_lock_preset("Neon Purple", "Violet")
+        self.assertEqual(canonical, "violet")
+        presets = lock.load_lock_presets()
+        self.assertNotIn("neon_purple", presets)
+        self.assertEqual(presets["violet"]["display_name"], "Violet")
+        self.assertEqual(presets["violet"]["values"]["color"], "#8b5cf6")
+        with self.assertRaisesRegex(lock.ConfigError, "does not exist"):
+            lock.rename_lock_preset("Neon Purple", "Other")
+        lock.save_lock_preset("Other", self.exact_profile())
+        with self.assertRaisesRegex(lock.ConfigError, "already exists"):
+            lock.rename_lock_preset("Violet", "Other")
+        lock.delete_lock_preset("Violet")
+        self.assertNotIn("violet", lock.load_lock_presets())
+        with self.assertRaisesRegex(lock.ConfigError, "does not exist"):
+            lock.delete_lock_preset("Violet")
+
+    def test_presets_persist_independently_of_history_pruning(self):
+        lock.save_lock_preset("Keeper", self.exact_profile())
+        values = lock.validate({})
+        for index in range(lock.HISTORY_LIMIT + 4):
+            values["speed"] = 50 + index
+            values, _ = lock.save_profile(values, note=f"rev {index}")
+        self.assertLessEqual(len(lock.history_entries()), lock.HISTORY_LIMIT)
+        self.assertIn("keeper", lock.load_lock_presets())
+
+    def test_unsafe_names_rejected(self):
+        for bad in ("../escape", "a/b", ".", ""):
+            with self.assertRaises(lock.ConfigError):
+                lock.save_lock_preset(bad, self.exact_profile())
 
 
 if __name__ == "__main__":

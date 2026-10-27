@@ -24,6 +24,7 @@ from matrix_config import (
     clamp,
     load_user_presets,
 )
+from matrix_guide_data import PRESET_DESCRIPTIONS
 
 BIN = Path(__file__).resolve().parent
 GREETER = Path("/usr/libexec/kscreenlocker_greet")
@@ -186,12 +187,42 @@ def cmd_configure(_args):
     if not sys.stdin.isatty():
         print("Non-interactive session: not saving. Use matrix-lock save --from-last to apply.")
         return 0
-    answer = input("Save as the lock-screen profile? [y/N] ").strip().lower()
-    if answer in ("y", "yes"):
+    print("Save this look as:")
+    print("  [1] my active lock-screen configuration")
+    print("  [2] a named preset")
+    print("  [3] both")
+    print("  [4] discard (default)")
+    choice = input("Choice [1-4]: ").strip()
+    if choice in ("1", "3"):
         _save(captured, note="matrix-lock configure")
-    else:
+    if choice in ("2", "3"):
+        _save_captured_as_preset(captured)
+    if choice not in ("1", "2", "3"):
         print("Discarded; the lock-screen profile is unchanged.")
     return 0
+
+
+def _save_captured_as_preset(captured):
+    while True:
+        name = input('Preset name (e.g. "Neon Purple", empty cancels): ').strip()
+        if not name:
+            print("No preset saved.")
+            return
+        try:
+            try:
+                canonical = lock.save_lock_preset(name, captured)
+            except ConfigError as exc:
+                if "already exists" not in str(exc):
+                    raise
+                answer = input(f"Preset '{name}' exists. Replace it? [y/N] ").strip().lower()
+                if answer not in ("y", "yes"):
+                    continue
+                canonical = lock.save_lock_preset(name, captured, force=True)
+            print(f"saved preset '{name}' ({canonical}); apply later with: "
+                  f'matrix-lock preset apply "{name}"')
+            return
+        except ConfigError as exc:
+            print(f"cannot save preset: {exc}")
 
 
 def cmd_quality(args):
@@ -209,20 +240,67 @@ def cmd_quality(args):
     return 0
 
 
+def _print_preset_list():
+    print("BUILT-IN PRESETS")
+    for name in PRESETS:
+        print(f"  {name:<14} {PRESET_DESCRIPTIONS.get(name, '')}".rstrip())
+    print("USER PRESETS")
+    entries = lock.load_lock_presets()
+    terminal = {name: values for name, values in load_user_presets().items()
+                if name not in entries}
+    for canonical in sorted(entries):
+        display = entries[canonical]["display_name"]
+        suffix = f"  ({canonical})" if display != canonical else ""
+        print(f"  {display}{suffix}")
+    for name in sorted(terminal):
+        print(f"  {name}  (terminal capture via matrix-preset)")
+    if not entries and not terminal:
+        print("  (none)")
+
+
 def cmd_preset(args):
-    if args.preset_command == "list":
-        print("BUILT-IN PRESETS")
-        for name in PRESETS:
-            print(f"  {name}")
-        print("USER PRESETS")
-        user = load_user_presets()
-        for name in user or ():
-            print(f"  {name}")
-        if not user:
-            print("  (none)")
+    command = args.preset_command
+    if command == "list":
+        _print_preset_list()
         return 0
+    if command == "save":
+        name = " ".join(args.name)
+        values = lock.load_profile()
+        canonical = lock.save_lock_preset(name, values, force=args.force)
+        print(f"saved preset '{name.strip()}' ({canonical}) from the current lock-screen profile")
+        print(f"  {lock.summarize(values)}")
+        return 0
+    if command == "show":
+        name = " ".join(args.name)
+        canonical = lock.normalize_preset_name(name)
+        entry = lock.load_lock_presets().get(canonical)
+        if entry is not None:
+            print(f"{entry['display_name']} ({canonical})")
+            for key in lock.VISUAL_KEYS:
+                if key in entry["values"]:
+                    print(f"  {key} = {entry['values'][key]}")
+            return 0
+        builtin = PRESETS.get(canonical, load_user_presets().get(canonical))
+        if builtin is None:
+            raise ConfigError(f"unknown preset: {canonical}")
+        kind = "built-in" if canonical in PRESETS else "terminal capture"
+        print(f"{canonical} ({kind})")
+        if canonical in PRESET_DESCRIPTIONS:
+            print(f"  {PRESET_DESCRIPTIONS[canonical]}")
+        for key in sorted(builtin):
+            print(f"  {key} = {builtin[key]}")
+        return 0
+    if command == "rename":
+        canonical = lock.rename_lock_preset(args.old, args.new)
+        print(f"renamed to '{args.new.strip()}' ({canonical})")
+        return 0
+    if command == "delete":
+        lock.delete_lock_preset(" ".join(args.name))
+        print("deleted")
+        return 0
+    # apply
     values, canonical = lock.apply_preset(lock.load_profile(), " ".join(args.name))
-    print(f"applied preset: {canonical}")
+    print(f"applied preset: {canonical} (resource-protection settings untouched)")
     _save(values, note=f"matrix-lock preset apply {canonical}")
     return 0
 
@@ -355,11 +433,30 @@ def main():
     sub.add_parser("capture-hue", help="capture the most recently held hue from a Matrix session")
     quality = sub.add_parser("quality", help="show or apply a rendering quality preset (balanced/high/battery)")
     quality.add_argument("name", nargs="?", default=None)
-    preset = sub.add_parser("preset", help="list or apply Matrix presets to the lock profile")
+    preset = sub.add_parser(
+        "preset",
+        help="manage named lock-screen presets (list/show/save/apply/rename/delete)",
+        description="Named lock-screen presets capture the current visual configuration "
+                    "(exact color or hue cycle, pacing, trails, render mode, ...) under a "
+                    "friendly name. Built-in presets are read-only; applying any preset "
+                    "never changes resource-protection settings and creates a history "
+                    "revision, so matrix-lock undo restores the previous appearance.")
     preset_sub = preset.add_subparsers(dest="preset_command", required=True)
-    preset_sub.add_parser("list")
-    apply_parser = preset_sub.add_parser("apply")
+    preset_sub.add_parser("list", help="built-in and user presets, listed separately")
+    show_parser = preset_sub.add_parser("show", help="print one preset's stored values")
+    show_parser.add_argument("name", nargs="+")
+    save_parser = preset_sub.add_parser(
+        "save", help='save the current lock profile as a named preset, e.g. preset save "Neon Purple"')
+    save_parser.add_argument("name", nargs="+")
+    save_parser.add_argument("--force", action="store_true",
+                             help="replace an existing user preset of the same name")
+    apply_parser = preset_sub.add_parser("apply", help="apply a named, built-in, or terminal preset")
     apply_parser.add_argument("name", nargs="+")
+    rename_parser = preset_sub.add_parser("rename", help="rename a user preset")
+    rename_parser.add_argument("old")
+    rename_parser.add_argument("new")
+    delete_parser = preset_sub.add_parser("delete", help="delete a user preset")
+    delete_parser.add_argument("name", nargs="+")
     sub.add_parser("history", help="list saved lock-screen revisions")
     sub.add_parser("undo", help="restore the most recent different revision")
     restore = sub.add_parser("restore", help="restore a specific revision")

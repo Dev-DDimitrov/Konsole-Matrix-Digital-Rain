@@ -136,6 +136,19 @@ history: `matrix-lock history`, `matrix-lock undo`, and
 `matrix-lock restore REV` provide reversible configuration rollback, separate
 from installation rollback. `matrix-guide --lock` documents the full surface.
 
+Favorite looks become named presets: `matrix-lock preset save "Neon Purple"`
+captures the current visual configuration — exact HEX color or hue-cycle
+state, pacing, density, trails, white heads, fades, mutation, flashes,
+background, and render mode — under a friendly name (stored atomically as
+`lock-presets/neon_purple.toml`, kept through reinstalls and independent of
+the bounded history). `preset list` shows built-in and user presets
+separately, `show`/`apply`/`rename`/`delete` manage them, applying records a
+history revision (`matrix-lock undo` restores the previous appearance), and
+built-ins are read-only. Presets never contain resource-protection settings,
+so applying one cannot change the adaptive guard. Ending a
+`matrix-lock configure` session offers saving the captured look as the
+active configuration, a named preset, or both.
+
 Rendering differences are disclosed rather than hidden: the default `auto`
 render mode draws through a GPU fragment shader (a white glyph atlas plus a
 per-cell state texture) with the terminal's exact discrete fade levels, and

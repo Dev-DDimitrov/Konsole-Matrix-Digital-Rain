@@ -33,6 +33,7 @@ from matrix_config import (
     load_last_effective,
     load_user_presets,
     nearest_cycle_phase,
+    normalize_preset_name,
     parse_hex_color,
     rgb_to_hex,
 )
@@ -46,6 +47,7 @@ PLUGIN_ID = "io.github.devddimitrov.matrixrain"
 LOCK_CONFIG_PATH = CONFIG_DIR / "lockscreen.toml"
 HISTORY_DIR = CONFIG_DIR / "lockscreen-history"
 HISTORY_LIMIT = 10
+LOCK_PRESET_DIR = CONFIG_DIR / "lock-presets"
 
 DATA_HOME = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
 PLUGIN_DIR = DATA_HOME / "plasma/wallpapers" / PLUGIN_ID
@@ -378,10 +380,106 @@ def set_color(values, text):
     return values
 
 
-def apply_preset(values, name):
-    """Overlay a built-in or user terminal preset onto the lock profile."""
-    from matrix_config import normalize_preset_name
+# Visual keys a named preset captures; the guard_* protection settings are
+# deliberately excluded so applying a visual preset can never change
+# adaptive resource protection or suspension behavior.
+GUARD_KEYS = tuple(key for key in LOCK_DEFAULTS
+                   if key == "resource_guard" or key.startswith("guard_"))
+VISUAL_KEYS = tuple(key for key in LOCK_DEFAULTS if key not in GUARD_KEYS)
+
+
+def lock_preset_path(name):
     canonical = normalize_preset_name(name)
+    path = (LOCK_PRESET_DIR / f"{canonical}.toml").resolve()
+    root = LOCK_PRESET_DIR.resolve()
+    if os.path.commonpath((str(root), str(path))) != str(root):
+        raise ConfigError("unsafe preset name")
+    return path
+
+
+def load_lock_presets():
+    """{canonical: {"display_name": str, "values": visual-key dict}}."""
+    if not LOCK_PRESET_DIR.exists():
+        return {}
+    if tomllib is None:
+        raise ConfigError("Python tomllib is unavailable")
+    presets = {}
+    for path in sorted(LOCK_PRESET_DIR.glob("*.toml")):
+        canonical = normalize_preset_name(path.stem)
+        try:
+            with path.open("rb") as handle:
+                data = tomllib.load(handle)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise ConfigError(f"cannot read lock preset {path.name}: {exc}") from exc
+        table = data.get("lockscreen", {})
+        if not isinstance(table, dict):
+            raise ConfigError(f"lock preset {path.name} must contain a [lockscreen] table")
+        presets[canonical] = {
+            "display_name": str(data.get("display_name", canonical)),
+            "values": {key: table[key] for key in VISUAL_KEYS if key in table},
+        }
+    return presets
+
+
+def save_lock_preset(name, values, force=False):
+    """Save the visual keys of a validated profile as a named lock preset."""
+    canonical = normalize_preset_name(name)
+    if canonical in PRESETS:
+        raise ConfigError(f"'{canonical}' is a built-in preset and cannot be replaced")
+    path = lock_preset_path(canonical)
+    if path.exists() and not force:
+        raise ConfigError(f"preset already exists: {canonical} (use --force to replace it)")
+    values = validate(values)
+    lines = ["# Konsole-Matrix-Digital-Rain named lock-screen preset; managed by matrix-lock.\n",
+             f"display_name = {_toml_literal(str(name).strip())}\n",
+             "[lockscreen]\n"]
+    for key in VISUAL_KEYS:
+        lines.append(f"{key} = {_toml_literal(values[key])}\n")
+    _atomic_write(path, "".join(lines))
+    return canonical
+
+
+def delete_lock_preset(name):
+    canonical = normalize_preset_name(name)
+    if canonical in PRESETS:
+        raise ConfigError(f"'{canonical}' is a built-in preset and cannot be deleted")
+    path = lock_preset_path(canonical)
+    if not path.exists():
+        raise ConfigError(f"user preset does not exist: {canonical}")
+    path.unlink()
+
+
+def rename_lock_preset(old, new):
+    old_canonical = normalize_preset_name(old)
+    if old_canonical in PRESETS:
+        raise ConfigError(f"'{old_canonical}' is a built-in preset and cannot be renamed")
+    new_canonical = normalize_preset_name(new)
+    if new_canonical in PRESETS:
+        raise ConfigError(f"'{new_canonical}' is a built-in preset name")
+    entry = load_lock_presets().get(old_canonical)
+    if entry is None:
+        raise ConfigError(f"user preset does not exist: {old_canonical}")
+    if new_canonical != old_canonical and lock_preset_path(new_canonical).exists():
+        raise ConfigError(f"preset already exists: {new_canonical}")
+    merged = dict(load_profile())
+    merged.update(entry["values"])
+    save_lock_preset(new, merged, force=new_canonical == old_canonical)
+    if new_canonical != old_canonical:
+        lock_preset_path(old_canonical).unlink()
+    return new_canonical
+
+
+def apply_preset(values, name):
+    """Overlay a named lock preset, built-in, or terminal capture onto the
+    lock profile. Guard settings are never part of a preset and stay put."""
+    canonical = normalize_preset_name(name)
+    lock_presets = load_lock_presets()
+    if canonical in lock_presets:
+        merged = dict(values)
+        merged.update(lock_presets[canonical]["values"])
+        for key in GUARD_KEYS:
+            merged[key] = values[key]
+        return validate(merged), canonical
     preset = PRESETS.get(canonical)
     if preset is None:
         preset = load_user_presets().get(canonical)

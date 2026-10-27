@@ -11,7 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from matrix_config import CYCLE_SPEEDS, EXIT_GUARD_DEFAULTS, MATRIX_ALL_DEFAULTS, PRESETS, load_config, load_user_presets
-from matrix_guide_data import COLORS_INFO, COMMANDS, CONTROLS, LOCK_COMMANDS, SAVER_MODES
+from matrix_guide_data import (COLORS_INFO, COMMANDS, CONTROLS, LOCK_COMMANDS,
+                               PRESET_DESCRIPTIONS, SAVER_MODES)
 
 
 def heading(title):
@@ -44,16 +45,8 @@ def colors():
 
 def presets():
     heading("Presets")
-    descriptions = {
-        "cinematic": "default high-quality green Matrix look",
-        "classic": "traditional UniMatrix/CMatrix-inspired appearance",
-        "ambient": "slower, lower-intensity rainfall",
-        "dense": "denser rainfall",
-        "minimal": "sparse and subtle rainfall",
-        "cyber": "cyan-oriented colorful cycling preset",
-    }
     for name in PRESETS:
-        print(f"{name:<12} {descriptions.get(name, 'named visual preset')}")
+        print(f"{name:<12} {PRESET_DESCRIPTIONS.get(name, 'named visual preset')}")
     user = load_user_presets()
     if user:
         print("\nUser presets:")
@@ -92,7 +85,14 @@ def lockscreen():
         print(f"{command:<38} {description}")
     print("")
     print("Exact hue workflow: matrix-lock configure -> press c to cycle -> press h at the")
-    print("perfect moment -> exit with q -> answer y to save. The held hue is captured exactly.")
+    print("perfect moment -> exit with q -> choose to save as the active configuration, a")
+    print("named preset, or both. The held hue is captured exactly.")
+    print("Named presets keep friendly names (\"Neon Purple\" lists as typed, stored as")
+    print("neon_purple), capture the full visual look including exact HEX color, cycling,")
+    print("pacing, trails, and render mode, and never carry resource-protection settings.")
+    print("Built-in presets:")
+    for name, description in PRESET_DESCRIPTIONS.items():
+        print(f"  {name:<12} {description}")
     print("Cycling starts from the saved hue and stays synchronized across monitors.")
     print("Changes apply on the next lock; matrix-lock preview --greeter tests safely first.")
     print("Lock-screen saves never change terminal Matrix settings, and vice versa.")
