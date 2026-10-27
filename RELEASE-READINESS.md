@@ -61,14 +61,18 @@ Wayland workstation (three displays, one at fractional scale):
 
 These were the audit's only blocking conditions.
 
+## GitHub Actions CI (2026-10-27): PASSED
+
+The branch was pushed and proposed as a pull request against `main`
+(2026-10-27, with maintainer authorization). Both the push-triggered and the
+pull-request CI runs passed in full on the Fedora container, including the
+ShellCheck step — the one check that cannot run locally — alongside shell
+syntax validation, Python AST validation, all 144 portable tests, and the
+provenance check.
+
 ## Remaining release gates
 
-1. **GitHub Actions CI** on the merged branch — the next gate. Every CI step
-   except ShellCheck has been mirrored locally against the candidate (valid
-   workflow YAML, `bash -n` on 17 shell files, AST parse on 20 Python files,
-   144 tests, provenance check); ShellCheck is not available locally and runs
-   only in CI, so CI completion is required before tagging.
-2. **Explicit maintainer authorization** to merge, tag, and publish. Nothing
+1. **Explicit maintainer authorization** to merge, tag, and publish. Nothing
    is merged, tagged, or published before that authorization.
 
 ## Known-good but not manually re-checked
