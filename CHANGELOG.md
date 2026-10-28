@@ -1,9 +1,13 @@
 # Changelog
 
 This changelog follows a Keep-a-Changelog-inspired structure and records the
-v0.9.0 source release and future work.
+public releases and future work.
 
 ## [Unreleased]
+
+- Nothing yet.
+
+## [0.10.0] - 2026-10-27
 
 ### Added
 
