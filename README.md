@@ -41,6 +41,47 @@ shared wall-clock phase — no IPC, no daemon.*
 ![Terminal renderer in Konsole, cinematic preset](docs/media/terminal-cinematic.png)
 *The terminal renderer in Konsole (`matrix --preset cinematic`).*
 
+## Colors & Hue Variations
+
+The rain can take any color. The terminal renderer offers the named colors
+`green`, `red`, `blue`, `white`, `yellow`, `cyan`, and `magenta`
+(`matrix --color blue`) plus hue cycling with live hue hold; the lock-screen
+renderer accepts any exact HEX color or hue degree
+(`matrix-lock set color "#8b5cf6"`, `matrix-lock set hue 270`). Every tile
+below is real renderer output, captured from the GPU lock-screen renderer in
+a plain test window at the exact HEX shown — shades beyond the named
+terminal colors (such as orange, purple, and pink) are custom hue
+selections, not built-in presets.
+
+| | |
+| --- | --- |
+| ![Matrix rain in green](docs/media/color_green.png) | ![Matrix rain in cyan](docs/media/color_cyan.png) |
+| **Green** — `#00ff41` (classic) | **Cyan** — `#00ffdd` |
+| ![Matrix rain in blue](docs/media/color_blue.png) | ![Matrix rain in red](docs/media/color_red.png) |
+| **Blue** — `#0060ff` (also a named terminal color) | **Red** — `#ff2b2b` |
+| ![Matrix rain in orange](docs/media/color_orange.png) | ![Matrix rain in yellow](docs/media/color_yellow.png) |
+| **Orange** — `#ff7a00` (custom hue) | **Yellow** — `#ffbe00` (also a named terminal color) |
+| ![Matrix rain in purple](docs/media/color_purple.png) | ![Matrix rain in pink](docs/media/color_pink.png) |
+| **Purple** — `#8b5cf6` (custom hue) | **Pink** — `#ff4fa3` (custom hue) |
+
+## Background Styles
+
+The terminal renderer supports five background modes —
+`matrix --background profile|black|charcoal|white|translucent` (also cycled
+live with the `b` key). These are terminal/Konsole features; the lock-screen
+renderer uses its own solid background color setting
+(`matrix-lock set background "#101010"`) rather than these modes. All four
+captures below are real Konsole windows; the translucent capture shows the
+project's actual 70%-opacity Konsole profile compositing over a neutral
+backdrop window — no edited or layered images.
+
+| | |
+| --- | --- |
+| ![Matrix rain on a pure black background](docs/media/bg_black.png) | ![Matrix rain on a charcoal background](docs/media/bg_charcoal.png) |
+| **Black** — pure `#000000` (Matrix Konsole profile default) | **Charcoal** — `#303030` |
+| ![Matrix rain on a white background](docs/media/bg_white.png) | ![Matrix rain on a translucent background](docs/media/bg_translucent.png) |
+| **White** — light background with darker rain | **Translucent** — real compositor transparency (`--background translucent`) |
+
 ## Why this exists
 
 I want to share this project out of love for Linux, the Matrix, and all things
