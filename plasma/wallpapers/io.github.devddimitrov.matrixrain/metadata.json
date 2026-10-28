@@ -1,0 +1,18 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Dev-DDimitrov"
+            }
+        ],
+        "Category": "",
+        "Description": "Animated Matrix Digital Rain for the KDE lock screen and desktop, configured by matrix-lock",
+        "Icon": "weather-showers-symbolic",
+        "Id": "io.github.devddimitrov.matrixrain",
+        "License": "GPL-3.0-or-later",
+        "Name": "Matrix Digital Rain",
+        "Website": "https://github.com/Dev-DDimitrov/Konsole-Matrix-Digital-Rain"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

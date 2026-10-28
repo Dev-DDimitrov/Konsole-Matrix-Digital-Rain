@@ -21,6 +21,28 @@ security boundary; immediate and after modes hand off to KDE's real lock
 mechanism. `matrix-doctor` is read-only. `matrix-settings` manages defaults,
 and `matrix-preset` manages local visual presets.
 
+`matrix-lock` manages the animated KDE lock-screen wallpaper with an
+independent profile: `configure` opens a live preview with the
+normal Matrix controls and offers to save on exit, `set hue`/`set color`
+select exact colors, `capture-hue` imports a hue held with `h`,
+`quality balanced|high|battery` switches rendering bundles without touching
+colors, `preset save|list|show|apply|rename|delete` manages named user
+presets ("Neon Purple" keeps its friendly name; built-ins are read-only and
+applying never touches resource protection), and `history`/`undo`/`restore`
+provide reversible configuration rollback. The automatic hue cycle is
+customizable: press `x` twice in `matrix-lock configure` to exclude the
+traversed hue range (u/U undo/redo live edits, X clears), or use
+`matrix-lock cycle exclude add 45 105` numerically; excluded ranges are
+bridged by short smooth crossfades, presets carry them, and
+`matrix-lock configure --preset NAME` edits a saved preset live. Adaptive resource protection (on by default, `[resource_guard]` in
+config.toml for the terminal, `matrix-lock set resource-guard`/`guard-*` for
+the lock screen) freezes the animation while overall system CPU or memory
+use is excessive and resumes it automatically; it never overrides a manual
+pause.
+`enable` backs up the previous lock wallpaper before activating;
+`disable` restores it. See `matrix-guide --lock` for the complete workflow
+and the README's "Animated KDE lock screen" section for details.
+
 ## Defaults and configuration
 
 The intended cinematic defaults include speed 96, green, trail 16–38,

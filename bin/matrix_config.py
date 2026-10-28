@@ -48,6 +48,9 @@ DEFAULTS = {
     "hue_hold": False,
     "cycle_phase": 0.0,
     "manual_hue_step": 0.015,
+    # Custom hue-cycle exclusions: list of {id, start, end, blend, enabled}
+    # tables (phases 0-1; the excluded arc runs forward start -> end).
+    "cycle_exclusions": [],
 }
 
 EXIT_GUARD_DEFAULTS = {"enabled": False, "binding": "Ctrl+Y"}
@@ -152,6 +155,11 @@ def _toml_literal(value):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
         return str(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_literal(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ", ".join(f"{key} = {_toml_literal(item)}"
+                               for key, item in value.items()) + "}"
     return json.dumps(str(value))
 
 
@@ -302,6 +310,18 @@ def load_config(path=CONFIG_PATH):
     values["settings_lock"] = {
         "enabled": bool(lock.get("enabled", SETTINGS_LOCK_DEFAULTS["enabled"])),
     }
+    from matrix_resource_guard import GUARD_DEFAULTS, validate_guard
+    resource = _table(data, "resource_guard")
+    guard_values = {"resource_guard": resource.get(
+        "enabled", GUARD_DEFAULTS["resource_guard"])}
+    for key, default in GUARD_DEFAULTS.items():
+        if key == "resource_guard":
+            continue
+        guard_values[key] = resource.get(key.replace("guard_", ""), default)
+    try:
+        values["resource_guard"] = validate_guard(guard_values)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"invalid [resource_guard] value: {exc}") from exc
     return values, None
 
 
@@ -387,10 +407,19 @@ def resolve(namespace):
     values["hue_hold"] = bool(values["hue_hold"])
     values["cycle_phase"] = float(values["cycle_phase"]) % 1.0
     values["manual_hue_step"] = clamp(float(values["manual_hue_step"]), 0.001, 0.1)
+    if isinstance(values["cycle_exclusions"], str):
+        values["cycle_exclusions"] = parse_cycle_exclusions(values["cycle_exclusions"])
+    else:
+        values["cycle_exclusions"] = normalize_cycle_exclusions(values["cycle_exclusions"])
     values["preset_name"] = preset_name
     values["exit_guard"] = config.get("exit_guard", dict(EXIT_GUARD_DEFAULTS))
     values["matrix_all"] = config.get("matrix_all", dict(MATRIX_ALL_DEFAULTS))
     values["settings_lock"] = config.get("settings_lock", dict(SETTINGS_LOCK_DEFAULTS))
+    if "resource_guard" in config:
+        values["resource_guard"] = config["resource_guard"]
+    else:
+        from matrix_resource_guard import GUARD_DEFAULTS
+        values["resource_guard"] = dict(GUARD_DEFAULTS)
     return values
 
 
@@ -418,7 +447,15 @@ def add_cli_arguments(parser):
     parser.add_argument("--cycle-direction", choices=("forward", "reverse"), default=None)
     parser.add_argument("--fps-cap", type=int, default=None)
     parser.add_argument("--reduced-motion", action="store_true", default=None)
+    parser.add_argument("--cycle-phase", dest="cycle_phase", type=float, default=None,
+                        help="initial spectrum phase 0.0-1.0 (used by matrix-lock previews)")
+    parser.add_argument("--hue-hold", dest="hue_hold", action="store_true", default=None,
+                        help="start with the hue held at the given cycle phase")
+    parser.add_argument("--no-hue-hold", dest="hue_hold", action="store_false")
     parser.add_argument("--manual-hue-step", type=float, default=None)
+    parser.add_argument("--cycle-exclusions", dest="cycle_exclusions", type=str, default=None,
+                        metavar="S:E:B[:ON];...",
+                        help="hue-cycle exclusions as start:end:blend[:enabled] phases")
     parser.add_argument("--spacing", type=int, default=2)
     parser.add_argument("--chars", type=str, default=None)
     parser.add_argument("-o", "--status-off", action="store_true", default=False)
@@ -570,18 +607,323 @@ def cycle_rgb(phase, direction="forward"):
     return _hue_rgb(CYCLE_WAYPOINTS[-1][1])
 
 
+# =========================== custom hue-cycle path ===========================
+# Exclusions carve intervals out of the spectrum cycle. The cycle is then a
+# precomputed path of segments: "arc" segments traverse the retained spectrum
+# at the normal angular rate, and short "bridge" segments crossfade directly
+# between the retained endpoints over a configurable blend duration
+# (smoothstep-eased, linear-light RGB — the blend passes through desaturated
+# midpoints instead of foreign hues). The path is rebuilt only when the
+# exclusion list changes; evaluation is a scan over a handful of segments.
+# CYCLE_WAYPOINTS maps phase 0..1 monotonically onto hue 120..480 degrees,
+# so degrees and phases convert exactly in both directions.
+
+CYCLE_BLEND_DEFAULT = 1.0
+CYCLE_BLEND_MIN = 0.05
+CYCLE_BLEND_MAX = 30.0
+CYCLE_MIN_VISIBLE = 0.05   # at least 5% of the spectrum must remain
+
+
+def hue_from_phase(phase):
+    """Exact hue in degrees (0-360) displayed at a cycle phase."""
+    position = phase % 1.0
+    for index in range(len(CYCLE_WAYPOINTS) - 1):
+        p0, h0 = CYCLE_WAYPOINTS[index]
+        p1, h1 = CYCLE_WAYPOINTS[index + 1]
+        if position <= p1:
+            amount = (position - p0) / max(1e-9, p1 - p0)
+            return (h0 + (h1 - h0) * amount) % 360.0
+    return CYCLE_WAYPOINTS[-1][1] % 360.0
+
+
+def phase_from_hue(degrees):
+    """Exact cycle phase showing a hue in degrees (inverse of hue_from_phase)."""
+    try:
+        hue = float(degrees) % 360.0
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"hue must be a number of degrees: {degrees!r}") from exc
+    target = 120.0 + ((hue - 120.0) % 360.0)   # waypoint hue domain is 120..480
+    for index in range(len(CYCLE_WAYPOINTS) - 1):
+        p0, h0 = CYCLE_WAYPOINTS[index]
+        p1, h1 = CYCLE_WAYPOINTS[index + 1]
+        if h0 <= target <= h1:
+            amount = (target - h0) / max(1e-9, h1 - h0)
+            return round((p0 + (p1 - p0) * amount) % 1.0, 6)
+    return 0.0
+
+
+def normalize_cycle_exclusions(raw):
+    """Validated, stably-identified copy of an exclusion list.
+
+    Each exclusion: {id, start, end, blend, enabled}; start/end are cycle
+    phases in [0,1) and the excluded arc runs forward from start to end
+    (wrapping through 1.0 when end < start). Raises ConfigError on invalid
+    input or when the enabled exclusions leave under 5% of the cycle.
+    """
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, (list, tuple)):
+        raise ConfigError("cycle_exclusions must be a list of exclusion tables")
+    result = []
+    used_ids = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ConfigError("each cycle exclusion must be a table")
+        try:
+            start = round(float(item["start"]) % 1.0, 6)
+            end = round(float(item["end"]) % 1.0, 6)
+            blend = round(float(item.get("blend", CYCLE_BLEND_DEFAULT)), 3)
+            enabled = bool(item.get("enabled", True))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ConfigError(f"invalid cycle exclusion {item!r}: {exc}") from exc
+        if abs(start - end) < 1e-6:
+            raise ConfigError("exclusion start and end phases must differ")
+        blend = clamp(blend, CYCLE_BLEND_MIN, CYCLE_BLEND_MAX)
+        entry = {"id": 0, "start": start, "end": end,
+                 "blend": blend, "enabled": enabled}
+        raw_id = item.get("id")
+        if isinstance(raw_id, int) and raw_id > 0 and raw_id not in used_ids:
+            entry["id"] = raw_id
+        result.append(entry)
+    next_id = max(used_ids | {entry["id"] for entry in result} | {0}) + 1
+    for entry in result:
+        if entry["id"] == 0:
+            entry["id"] = next_id
+            next_id += 1
+        used_ids.add(entry["id"])
+    enabled_cycle_gaps(result)   # validates remaining coverage
+    return result
+
+
+def enabled_cycle_gaps(exclusions):
+    """Merged, sorted (start, end, blend) gaps for the enabled exclusions.
+
+    At most one gap wraps (its end < start). Overlapping or touching gaps
+    merge, keeping the longest blend. Raises when the retained spectrum
+    would fall below CYCLE_MIN_VISIBLE.
+    """
+    linear = []
+    for item in exclusions:
+        if not item.get("enabled", True):
+            continue
+        start, end, blend = item["start"] % 1.0, item["end"] % 1.0, item["blend"]
+        if end < start:
+            linear.append([start, 1.0, blend])
+            if end > 0:
+                linear.append([0.0, end, blend])
+        else:
+            linear.append([start, end, blend])
+    if not linear:
+        return []
+    linear.sort()
+    eps = 1e-5
+    merged = [linear[0][:]]
+    for start, end, blend in linear[1:]:
+        if start <= merged[-1][1] + eps:
+            merged[-1][1] = max(merged[-1][1], end)
+            merged[-1][2] = max(merged[-1][2], blend)
+        else:
+            merged.append([start, end, blend])
+    # Re-join a pair that meets across the wrap point into one wrapping gap.
+    if len(merged) >= 2 and merged[0][0] <= eps and merged[-1][1] >= 1.0 - eps:
+        first = merged.pop(0)
+        merged[-1][1] = first[1] % 1.0 if first[1] < 1.0 else first[1]
+        merged[-1][2] = max(merged[-1][2], first[2])
+    elif merged and merged[-1][1] >= 1.0 - 1e-9:
+        merged[-1][1] = merged[-1][1] % 1.0 if merged[-1][1] > 1.0 else 0.0
+    covered = sum(((end - start) % 1.0) or 1.0 for start, end, _ in
+                  ((g[0], g[1], g[2]) for g in merged))
+    if covered > 1.0 - CYCLE_MIN_VISIBLE:
+        raise ConfigError(
+            f"exclusions would remove {covered * 100:.0f}% of the cycle; "
+            f"at least {CYCLE_MIN_VISIBLE * 100:.0f}% must remain")
+    return [(g[0], g[1], g[2]) for g in merged]
+
+
+def build_cycle_path(exclusions, period):
+    """Precomputed cycle path, or None when no exclusion is enabled.
+
+    Returns {"total": seconds, "segments": [(t0, t1, kind, a, b), ...]}.
+    Arc segments run a -> b (b may exceed 1.0; evaluate modulo 1) at the
+    normal rate; bridge segments crossfade from phase a to phase b over the
+    gap's blend duration. The path starts at the first gap's end, so every
+    renderer derives the identical path from the same configuration.
+    """
+    gaps = enabled_cycle_gaps(exclusions)
+    if not gaps:
+        return None
+    period = max(2.0, float(period))
+    segments = []
+    t = 0.0
+    count = len(gaps)
+    for index in range(count):
+        gap = gaps[index]
+        nxt = gaps[(index + 1) % count]
+        arc_from = gap[1]
+        arc_len = (nxt[0] - arc_from) % 1.0
+        if count == 1:
+            arc_len = (gap[0] - gap[1]) % 1.0
+        segments.append((t, t + arc_len * period, "arc",
+                         arc_from, arc_from + arc_len))
+        t += arc_len * period
+        segments.append((t, t + nxt[2], "bridge", nxt[0] % 1.0, nxt[1] % 1.0))
+        t += nxt[2]
+    return {"total": t, "segments": segments}
+
+
+def _linear_blend_rgb(rgb_a, rgb_b, fraction):
+    """Linear-light (gamma 2.2) crossfade between two sRGB colors."""
+    def to_linear(channel):
+        return (channel / 255.0) ** 2.2
+
+    def to_srgb(value):
+        return int(round(255.0 * (max(0.0, value) ** (1.0 / 2.2))))
+
+    return tuple(
+        to_srgb(to_linear(a) + (to_linear(b) - to_linear(a)) * fraction)
+        for a, b in zip(rgb_a, rgb_b))
+
+
+def _path_segment(path, seconds):
+    total = path["total"]
+    s = seconds % total
+    for t0, t1, kind, a, b in path["segments"]:
+        if s <= t1:
+            fraction = (s - t0) / max(1e-9, t1 - t0)
+            return kind, a, b, fraction
+    t0, t1, kind, a, b = path["segments"][-1]
+    return kind, a, b, 1.0
+
+
+def cycle_path_rgb(path, seconds):
+    """Displayed color at a path position (seconds, modulo path total)."""
+    kind, a, b, fraction = _path_segment(path, seconds)
+    if kind == "arc":
+        return cycle_rgb((a + (b - a) * fraction) % 1.0)
+    eased = fraction * fraction * (3.0 - 2.0 * fraction)
+    return _linear_blend_rgb(cycle_rgb(a), cycle_rgb(b), eased)
+
+
+def cycle_path_phase(path, seconds):
+    """Nearest true spectrum phase at a path position (bridges snap to the
+    closer retained endpoint, so a held hue is always exactly reproducible)."""
+    kind, a, b, fraction = _path_segment(path, seconds)
+    if kind == "arc":
+        return (a + (b - a) * fraction) % 1.0
+    return a if fraction < 0.5 else b
+
+
+def cycle_path_anchor(path, phase):
+    """Path position (seconds) whose displayed phase equals `phase`; a phase
+    inside an excluded gap anchors at that gap's bridge start."""
+    phase %= 1.0
+    for t0, t1, kind, a, b in path["segments"]:
+        if kind != "arc":
+            continue
+        offset = (phase - (a % 1.0)) % 1.0
+        length = b - a
+        if offset <= length + 1e-9:
+            return t0 + (t1 - t0) * min(1.0, offset / max(1e-9, length))
+    best = None
+    for t0, t1, kind, a, b in path["segments"]:
+        if kind == "bridge":
+            inside = (phase - a) % 1.0 <= (b - a) % 1.0
+            if inside:
+                return t0
+            if best is None:
+                best = t0
+    return best or 0.0
+
+
+def format_cycle_gaps(exclusions):
+    """Compact 'start:end:blend' string of merged enabled gaps (KConfig/CLI)."""
+    return ";".join(f"{start:.6f}:{end:.6f}:{blend:.3f}"
+                    for start, end, blend in enabled_cycle_gaps(exclusions))
+
+
+def format_cycle_exclusions(exclusions):
+    """Round-trip 'start:end:blend:enabled' string of the full exclusion list."""
+    return ";".join(
+        f"{item['start']:.6f}:{item['end']:.6f}:{item['blend']:.3f}:"
+        f"{1 if item.get('enabled', True) else 0}"
+        for item in exclusions)
+
+
+def parse_cycle_exclusions(text):
+    """Parse a compact exclusion string back into a validated list."""
+    if not text or not str(text).strip():
+        return []
+    items = []
+    for chunk in str(text).split(";"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        parts = chunk.split(":")
+        if len(parts) not in (3, 4):
+            raise ConfigError(f"invalid cycle exclusion entry: {chunk!r}")
+        items.append({"start": parts[0], "end": parts[1], "blend": parts[2],
+                      "enabled": parts[3] != "0" if len(parts) == 4 else True})
+    return normalize_cycle_exclusions(items)
+
+
+def nearest_cycle_phase(rgb):
+    """Map a static direct palette color onto the nearest spectrum sample."""
+    best = 0.0
+    best_distance = float("inf")
+    for step in range(720):
+        phase = step / 720.0
+        distance = sum((left - right) ** 2 for left, right in zip(cycle_rgb(phase), rgb))
+        if distance < best_distance:
+            best, best_distance = phase, distance
+    return best
+
+
+def parse_hex_color(value):
+    """Parse #rgb/#rrggbb into an (r, g, b) tuple; reject anything else."""
+    if not isinstance(value, str):
+        raise ConfigError("color must be text")
+    text = value.strip().lower()
+    if re.fullmatch(r"#[0-9a-f]{3}", text):
+        return tuple(int(ch * 2, 16) for ch in text[1:])
+    if re.fullmatch(r"#[0-9a-f]{6}", text):
+        return tuple(int(text[i:i + 2], 16) for i in (1, 3, 5))
+    raise ConfigError(f"not a valid HEX color: {value!r} (expected #RRGGBB)")
+
+
+def rgb_to_hex(rgb):
+    return "#{:02x}{:02x}{:02x}".format(*(int(clamp(v, 0, 255)) for v in rgb))
+
+
+def hue_degrees_rgb(degrees, saturation=1.0, value=1.0):
+    """Full-intensity RGB for a 0-359 hue with sensible normalization."""
+    try:
+        normalized = float(degrees) % 360.0
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("hue must be a number of degrees (0-359)") from exc
+    return _hue_rgb(normalized, saturation, value)
+
+
+def ramp_rgb(base_rgb, levels=6):
+    """Bright-to-dark trail ramp as true RGB tuples (shared with the lock QML)."""
+    hsv = colorsys.rgb_to_hsv(*(v / 255.0 for v in base_rgb))
+    brightness = (1.0, 0.82, 0.63, 0.46, 0.30, 0.16)
+    full = [
+        _hue_rgb(hsv[0] * 360.0, max(0.72, hsv[1]), min(1.0, hsv[2] * level))
+        for level in brightness
+    ]
+    if levels >= len(full):
+        return full
+    last = len(full) - 1
+    return [full[round(i * last / (levels - 1))] for i in range(levels)]
+
+
 def ramp_indices(color, phase=0.0, direction="forward"):
     if color == "white":
         rgb_values = [(255, 255, 255), (238, 238, 238), (192, 192, 192),
                       (140, 140, 140), (82, 82, 82), (35, 35, 35)]
     else:
         base = cycle_rgb(phase, direction) if color == "cycle" else COLOR_RGB[color]
-        hsv = colorsys.rgb_to_hsv(*(v / 255.0 for v in base))
-        brightness = (1.0, 0.82, 0.63, 0.46, 0.30, 0.16)
-        rgb_values = [
-            _hue_rgb(hsv[0] * 360.0, max(0.72, hsv[1]), min(1.0, hsv[2] * level))
-            for level in brightness
-        ]
+        rgb_values = ramp_rgb(base)
     return [nearest_xterm(rgb) for rgb in rgb_values]
 
 

@@ -19,12 +19,18 @@ Initial public release: **v0.9.0**.
 | `bin/matrix_guide*.py` | Generated command/control metadata and guide. |
 | `bin/matrix_settings.py` | Atomic global settings management. |
 | `bin/matrix_preset.py` | Safe visual-preset management. |
+| `bin/matrix_lockscreen.py` | Lock-screen profile, history, and kscreenlockerrc export. |
+| `bin/matrix_lock.py` | `matrix-lock` CLI for the animated lock-screen wallpaper. |
+| `plasma/wallpapers/io.github.devddimitrov.matrixrain/` | Plasma 6 QML lock/desktop wallpaper plugin. |
 | `bin/matrix*` | User-facing launcher wrappers and display controllers. |
 | `bin/unimatrix-fade*` | Local renderer entry points; not copies of the external UniMatrix executable. |
 | `config/config.toml.example` | Non-destructive first-install configuration example. |
+| `docs/media/` | Curated genuine screenshots and demo captures of this project's own output. |
 | `konsole/` | Matrix-owned Konsole profiles and color schemes. |
+| `bin/matrix_resource_guard.py` | Adaptive resource-protection metrics and hysteresis logic. |
 | `scripts/install.sh` | User-level installation with dry-run and manifest safeguards. |
 | `scripts/uninstall.sh` | Manifest-based user-level removal with preservation checks. |
+| `scripts/build-shaders.sh` | Regenerates the committed `.qsb` shader from its GLSL source. |
 | `systemd/matrix-saver.service` | Optional user unit; never enabled automatically. |
 | `tests/` | Portable regression, safety, and staging tests. |
 | `*.md` | User, contributor, architecture, security, provenance, and release documentation. |
@@ -33,9 +39,9 @@ Initial public release: **v0.9.0**.
 ## Public commands
 
 `matrix`, `matrix-konsole`, `matrix-full`, `matrix-all`, `matrix-preview`,
-`matrix-saver`, `matrix-settings`, `matrix-preset`, `matrix-doctor`, and
-`matrix-guide` are the public command surface. See [GUIDE.md](GUIDE.md) and
-[CONTROLS.md](CONTROLS.md).
+`matrix-saver`, `matrix-settings`, `matrix-preset`, `matrix-lock`,
+`matrix-doctor`, `matrix-guide`, and `matrix-help` are the public command
+surface. See [GUIDE.md](GUIDE.md) and [CONTROLS.md](CONTROLS.md).
 
 ## Runtime versus source
 
@@ -52,8 +58,9 @@ released under `GPL-3.0-or-later`. UniMatrix states that it is based on CMatrix
 by Chris Allegretta and Abishek V. Ashok. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the renderer header.
 
-The external installed UniMatrix executable, retained audit checkout, upstream
-fonts, screenshots, and media are not part of this repository.
+The external installed UniMatrix executable, retained audit checkout, and
+upstream fonts, screenshots, and media are not part of this repository. The
+captures under `docs/media/` are this project's own rendered output.
 
 ## Intentional exclusions
 

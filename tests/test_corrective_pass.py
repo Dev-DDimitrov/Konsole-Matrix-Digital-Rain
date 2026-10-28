@@ -187,7 +187,7 @@ class CorrectivePassTests(unittest.TestCase):
             command_names,
             {"matrix", "matrix-konsole", "matrix-full", "matrix-all",
              "matrix-preview", "matrix-saver", "matrix-settings", "matrix-preset",
-             "matrix-doctor", "matrix-guide"},
+             "matrix-lock", "matrix-doctor", "matrix-guide", "matrix-help"},
         )
         control_keys = {key for key, _ in matrix_guide_data.CONTROLS}
         for key in ("0", "1", "2", "3", "4", "5", "6", "7", "c", "C", "h / H", "v", "V", "p / P", "w", "S", "q / Escape / Space / Ctrl+C"):

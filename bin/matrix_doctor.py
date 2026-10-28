@@ -122,6 +122,12 @@ def main():
     report("Live translucency", "WARN", "Matrix translucent profile is launch-time only; live b changes cannot alter existing Konsole opacity")
     report("Plugin panel suppression", "WARN", "no reliable per-window Konsole SSH/Quick Commands action API; global plugin settings untouched")
     report("Secure lock visual", "WARN", "Matrix windows are behind KDE's authoritative lock screen after lock handoff")
+    lock_plugin = DATA / "plasma/wallpapers/io.github.devddimitrov.matrixrain/contents/ui/main.qml"
+    report(
+        "Lock-screen wallpaper plugin",
+        "PASS" if lock_plugin.is_file() else "WARN",
+        str(lock_plugin.parent.parent.parent) if lock_plugin.is_file() else "not installed; run scripts/install.sh, then see matrix-lock doctor",
+    )
     return 0
 
 

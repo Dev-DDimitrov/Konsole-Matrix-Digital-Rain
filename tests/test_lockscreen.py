@@ -1,0 +1,490 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Part of Konsole Matrix Digital Rain.
+"""Deterministic tests for the lock-screen profile, history, and KDE export."""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+BIN = Path(os.environ.get("MATRIX_TEST_BIN", SOURCE_ROOT / "bin"))
+sys.path.insert(0, str(BIN))
+import matrix_config as config  # noqa: E402
+import matrix_lockscreen as lock  # noqa: E402
+
+PLUGIN_ROOT = SOURCE_ROOT / "plasma/wallpapers/io.github.devddimitrov.matrixrain"
+
+
+class Isolated(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="matrix-lock-test-")
+        root = Path(self._tmp.name)
+        self._patches = [
+            patch.object(lock, "LOCK_CONFIG_PATH", root / "lockscreen.toml"),
+            patch.object(lock, "HISTORY_DIR", root / "history"),
+            patch.object(lock, "WALLPAPER_BACKUP_PATH", root / "backup.json"),
+            patch.object(lock, "KSCREENLOCKERRC", root / "kscreenlockerrc"),
+            patch.object(lock, "PLUGIN_DIR", PLUGIN_ROOT),
+            patch.object(lock, "LOCK_PRESET_DIR", root / "lock-presets"),
+        ]
+        for item in self._patches:
+            item.start()
+        self.addCleanup(self._tmp.cleanup)
+        for item in self._patches:
+            self.addCleanup(item.stop)
+        self.root = root
+
+
+class ValidationTests(Isolated):
+    def test_defaults_are_valid_and_balanced(self):
+        values = lock.validate({})
+        self.assertEqual(values["color"], "green")
+        self.assertFalse(values["color_cycle"])
+        self.assertFalse(values["flashers"])
+        self.assertEqual(values["render_mode"], "auto")
+        self.assertLessEqual(values["fps_cap"], 30)
+        self.assertEqual(values["speed"], 96)
+        self.assertEqual(values["white_head_rate"], 25)
+
+    def test_quality_presets_do_not_touch_visual_identity(self):
+        base = lock.validate({"color": "#8b5cf6", "cycle_phase": 0.42,
+                              "color_cycle": True, "glyph_size": 24,
+                              "white_head_rate": 50, "background": "#303030"})
+        for name in ("balanced", "high", "battery"):
+            values, canonical = lock.apply_quality(base, name)
+            self.assertEqual(canonical, name)
+            self.assertEqual(values["color"], "#8b5cf6")
+            self.assertAlmostEqual(values["cycle_phase"], 0.42)
+            self.assertTrue(values["color_cycle"])
+            self.assertEqual(values["glyph_size"], 24)
+            self.assertEqual(values["white_head_rate"], 50)
+            self.assertEqual(values["background"], "#303030")
+        battery, _ = lock.apply_quality(base, "battery")
+        self.assertEqual(battery["render_mode"], "low-power")
+        self.assertLessEqual(battery["fps_cap"], 12)
+        with self.assertRaises(config.ConfigError):
+            lock.apply_quality(base, "ultra")
+
+    def test_unknown_keys_and_bad_values_are_rejected(self):
+        with self.assertRaises(config.ConfigError):
+            lock.validate({"surprise": 1})
+        with self.assertRaises(config.ConfigError):
+            lock.validate({"color": "chartreuse"})
+        with self.assertRaises(config.ConfigError):
+            lock.validate({"color": "#12345"})
+        with self.assertRaises(config.ConfigError):
+            lock.validate({"cycle_direction": "sideways"})
+        with self.assertRaises(config.ConfigError):
+            lock.validate({"speed": "fast"})
+
+    def test_values_clamp_and_normalize(self):
+        values = lock.validate({"speed": 500, "fps_cap": 500, "white_head_rate": -5,
+                                "cycle_phase": 1.75, "color": "#ABCDEF"})
+        self.assertEqual(values["speed"], 100)
+        self.assertEqual(values["fps_cap"], 60)
+        self.assertEqual(values["white_head_rate"], 0)
+        self.assertAlmostEqual(values["cycle_phase"], 0.75)
+        self.assertEqual(values["color"], "#abcdef")
+
+    def test_reduced_motion_disables_motion_features(self):
+        values = lock.validate({"reduced_motion": True, "color_cycle": True,
+                                "flashers": True, "mutation_rate": 5.0})
+        self.assertFalse(values["color_cycle"])
+        self.assertFalse(values["flashers"])
+        self.assertEqual(values["mutation_rate"], 0.0)
+
+    def test_hex_parsing_and_hue_conversion(self):
+        self.assertEqual(config.parse_hex_color("#00FF88"), (0, 255, 136))
+        self.assertEqual(config.parse_hex_color("#0f8"), (0, 255, 136))
+        with self.assertRaises(config.ConfigError):
+            config.parse_hex_color("00ff88")
+        with self.assertRaises(config.ConfigError):
+            config.parse_hex_color("#gg0000")
+        self.assertEqual(config.rgb_to_hex((0, 255, 136)), "#00ff88")
+        self.assertEqual(config.hue_degrees_rgb(0), (255, 0, 0))
+        self.assertEqual(config.hue_degrees_rgb(480), config.hue_degrees_rgb(120))
+        self.assertEqual(config.hue_degrees_rgb(-90), config.hue_degrees_rgb(270))
+        with self.assertRaises(config.ConfigError):
+            config.hue_degrees_rgb("violet")
+
+    def test_exact_hue_setters_preserve_color_and_phase(self):
+        values = lock.set_hue_degrees(dict(lock.LOCK_DEFAULTS), 270)
+        self.assertEqual(values["color"], config.rgb_to_hex(config.hue_degrees_rgb(270)))
+        values = lock.set_color(dict(lock.LOCK_DEFAULTS), "#8B5CF6")
+        self.assertEqual(values["color"], "#8b5cf6")
+        phase = values["cycle_phase"]
+        self.assertTrue(0.0 <= phase < 1.0)
+        # The stored phase is the nearest spectrum anchor for the exact color.
+        self.assertEqual(phase, config.nearest_cycle_phase((0x8b, 0x5c, 0xf6)))
+
+    def test_shared_ramp_matches_terminal_ramp(self):
+        for color in ("green", "cyan", "magenta"):
+            base = config.COLOR_RGB[color]
+            ramp = config.ramp_rgb(base)
+            self.assertEqual(len(ramp), 6)
+            indices = config.ramp_indices(color)
+            self.assertEqual(indices, [config.nearest_xterm(rgb) for rgb in ramp])
+
+
+class ProfilePersistenceTests(Isolated):
+    def test_save_load_roundtrip_and_atomicity(self):
+        values = lock.validate({"color": "#8b5cf6", "density": 44})
+        saved, revision = lock.save_profile(values, note="test")
+        self.assertEqual(lock.load_profile(), saved)
+        self.assertTrue((self.root / "lockscreen.toml").is_file())
+        stray = [p for p in self.root.iterdir() if p.name.startswith(".lockscreen")]
+        self.assertEqual(stray, [], "atomic write must not leave temp files")
+        self.assertTrue((self.root / "history" / f"{revision}.toml").is_file())
+
+    def test_missing_profile_returns_defaults(self):
+        self.assertEqual(lock.load_profile(), dict(lock.LOCK_DEFAULTS))
+
+    def test_corrupt_profile_is_reported_not_crashed(self):
+        (self.root / "lockscreen.toml").write_text("not = [valid", encoding="utf-8")
+        with self.assertRaises(config.ConfigError):
+            lock.load_profile()
+
+    def test_history_is_bounded_and_newest_first(self):
+        with patch.object(lock, "HISTORY_LIMIT", 5):
+            for index in range(8):
+                lock.save_profile({"speed": index + 1}, note=f"rev {index}")
+            entries = lock.history_entries()
+            self.assertEqual(len(entries), 5)
+            speeds = [values["speed"] for _, values in entries]
+            self.assertEqual(speeds, [8, 7, 6, 5, 4])
+
+    def test_restore_and_undo_preserve_forward_history(self):
+        _, first = lock.save_profile({"speed": 10}, note="first")
+        lock.save_profile({"speed": 20}, note="second")
+        restored = lock.load_revision(first)
+        self.assertEqual(restored["speed"], 10)
+        lock.save_profile(restored, note="restore")
+        entries = lock.history_entries()
+        speeds = [values["speed"] for _, values in entries]
+        self.assertEqual(speeds[:3], [10, 20, 10])
+
+    def test_bad_revision_ids_are_rejected(self):
+        for bad in ("../../etc/passwd", "20250101-000000/../x", "evil", ""):
+            with self.assertRaises(config.ConfigError):
+                lock.load_revision(bad)
+
+
+class TerminalInterchangeTests(Isolated):
+    def test_held_hue_capture_is_exact(self):
+        term = {"color_cycle": True, "hue_hold": True, "cycle_phase": 0.42}
+        values = lock.from_terminal_values(term)
+        self.assertEqual(values["color"], config.rgb_to_hex(config.cycle_rgb(0.42)))
+        self.assertFalse(values["color_cycle"])
+        self.assertAlmostEqual(values["cycle_phase"], 0.42)
+
+    def test_cycling_capture_stays_cycling(self):
+        term = {"color_cycle": True, "hue_hold": False, "cycle_phase": 0.1,
+                "cycle_period": 36.0, "cycle_direction": "reverse"}
+        values = lock.from_terminal_values(term)
+        self.assertTrue(values["color_cycle"])
+        self.assertEqual(values["cycle_period"], 36.0)
+        self.assertEqual(values["cycle_direction"], "reverse")
+
+    def test_named_color_and_background_mapping(self):
+        term = {"color": "cyan", "color_cycle": False, "background": "charcoal",
+                "white_head_rate": 50, "fps_cap": 240}
+        values = lock.from_terminal_values(term)
+        self.assertEqual(values["color"], "cyan")
+        self.assertEqual(values["background"], "#303030")
+        self.assertEqual(values["white_head_rate"], 50)
+        self.assertEqual(values["fps_cap"], 60, "lock fps must clamp to the low-power cap")
+
+    def test_preset_apply_only_touches_preset_keys(self):
+        base = lock.validate({"glyph_size": 30, "fps_cap": 10})
+        values, name = lock.apply_preset(base, "cyber")
+        self.assertEqual(name, "cyber")
+        self.assertEqual(values["glyph_size"], 30)
+        self.assertEqual(values["fps_cap"], 10)
+        self.assertTrue(values["color_cycle"])
+        self.assertEqual(values["density"], 58)
+
+    def test_preview_arguments_are_safe_and_complete(self):
+        values = lock.validate({"color": "#8b5cf6"})
+        arguments = lock.renderer_preview_arguments(values)
+        self.assertIn("--hue-hold", arguments)
+        self.assertIn("--color-cycle", arguments)
+        for argument in arguments:
+            self.assertTrue(re.fullmatch(r"[A-Za-z0-9#.\-]+", argument),
+                            f"unsafe preview argument: {argument!r}")
+        named = lock.renderer_preview_arguments(lock.validate({"color": "green"}))
+        self.assertIn("--color", named)
+        self.assertNotIn("--hue-hold", named)
+
+
+class ExportTests(Isolated):
+    def test_export_covers_every_plugin_config_entry(self):
+        xml = (PLUGIN_ROOT / "contents/config/main.xml").read_text(encoding="utf-8")
+        entries = set(re.findall(r'<entry name="([A-Za-z]+)"', xml))
+        exported = set(lock.export_assignments(lock.validate({}), epoch=0.0))
+        self.assertEqual(entries, exported)
+
+    def test_export_writes_and_preserves_unrelated_config(self):
+        rc = self.root / "kscreenlockerrc"
+        rc.write_text("[Daemon]\nLockGrace=30\n\n[Greeter][Wallpaper][org.kde.image][General]\n"
+                      "Image=file:///art.png\n", encoding="utf-8")
+        lock.export_to_lockscreen(lock.validate({"color": "#00ff88"}), rc_path=rc, epoch=5.0)
+        content = rc.read_text(encoding="utf-8")
+        self.assertIn("LockGrace=30", content)
+        self.assertIn("Image=file:///art.png", content)
+        self.assertIn("[Greeter][Wallpaper][io.github.devddimitrov.matrixrain][General]", content)
+        self.assertIn("FixedColor=#00ff88", content)
+        self.assertIn("CycleEpoch=5", content)
+        # A second export must update in place, not duplicate.
+        lock.export_to_lockscreen(lock.validate({"color": "#ff0000"}), rc_path=rc, epoch=6.0)
+        content = rc.read_text(encoding="utf-8")
+        self.assertEqual(content.count("FixedColor="), 1)
+        self.assertIn("FixedColor=#ff0000", content)
+
+    def test_enable_backs_up_and_disable_restores(self):
+        rc = self.root / "kscreenlockerrc"
+        rc.write_text("[Greeter]\nWallpaperPlugin=org.kde.image\n", encoding="utf-8")
+        previous = lock.enable(rc_path=rc)
+        self.assertEqual(previous, "org.kde.image")
+        self.assertEqual(lock.current_wallpaper_plugin(rc), lock.PLUGIN_ID)
+        backup = json.loads((self.root / "backup.json").read_text(encoding="utf-8"))
+        self.assertEqual(backup["wallpaper_plugin"], "org.kde.image")
+        # Re-enabling must not overwrite the original backup.
+        lock.enable(rc_path=rc)
+        backup = json.loads((self.root / "backup.json").read_text(encoding="utf-8"))
+        self.assertEqual(backup["wallpaper_plugin"], "org.kde.image")
+        restored = lock.disable(rc_path=rc)
+        self.assertEqual(restored, "org.kde.image")
+        self.assertEqual(lock.current_wallpaper_plugin(rc), "org.kde.image")
+        self.assertFalse((self.root / "backup.json").exists())
+
+    def test_disable_rejects_corrupted_backup_plugin_id(self):
+        rc = self.root / "kscreenlockerrc"
+        rc.write_text("[Greeter]\nWallpaperPlugin=io.github.devddimitrov.matrixrain\n",
+                      encoding="utf-8")
+        (self.root / "backup.json").write_text(
+            json.dumps({"wallpaper_plugin": "evil\n[Greeter]\nX=Y"}), encoding="utf-8")
+        restored = lock.disable(rc_path=rc)
+        # Structural garbage never reaches kscreenlockerrc; stock default wins.
+        self.assertEqual(restored, "org.kde.image")
+        self.assertNotIn("evil", rc.read_text(encoding="utf-8"))
+
+    def test_enable_requires_installed_plugin(self):
+        with patch.object(lock, "PLUGIN_DIR", self.root / "missing"):
+            with self.assertRaises(config.ConfigError):
+                lock.enable(rc_path=self.root / "kscreenlockerrc")
+
+
+class QmlParityTests(unittest.TestCase):
+    def test_qml_waypoints_match_python_spectrum(self):
+        qml = (PLUGIN_ROOT / "contents/ui/main.qml").read_text(encoding="utf-8")
+        pairs = re.findall(r"\[(\d+\.\d+), (\d+)\]", qml)
+        qml_waypoints = tuple((float(a), int(b)) for a, b in pairs)
+        self.assertEqual(qml_waypoints, config.CYCLE_WAYPOINTS)
+
+    def test_qml_brightness_ramp_matches_python(self):
+        qml = (PLUGIN_ROOT / "contents/ui/main.qml").read_text(encoding="utf-8")
+        self.assertIn("[1.0, 0.82, 0.63, 0.46, 0.30, 0.16]", qml)
+        self.assertIn("Math.max(0.72, hsv[1])", qml)
+
+    def test_qml_uses_terminal_pacing_formula(self):
+        qml = (PLUGIN_ROOT / "contents/ui/main.qml").read_text(encoding="utf-8")
+        self.assertIn("Math.max(Math.round(1000 / fpsCap), (100 - speed) * 10)", qml)
+
+    def test_plugin_package_is_complete(self):
+        for relative in ("metadata.json", "contents/ui/main.qml",
+                         "contents/ui/config.qml", "contents/config/main.xml"):
+            self.assertTrue((PLUGIN_ROOT / relative).is_file(), relative)
+        metadata = json.loads((PLUGIN_ROOT / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual(metadata["KPlugin"]["Id"], lock.PLUGIN_ID)
+        self.assertEqual(metadata["KPackageStructure"], "Plasma/Wallpaper")
+
+
+class CliTests(Isolated):
+    def test_cli_set_show_history_undo(self):
+        sys.path.insert(0, str(BIN))
+        import matrix_lock as cli
+        with patch.object(sys, "argv", ["matrix-lock", "set", "hue", "270"]):
+            self.assertEqual(cli.main(), 0)
+        with patch.object(sys, "argv", ["matrix-lock", "set", "color-cycle", "on"]):
+            self.assertEqual(cli.main(), 0)
+        values = lock.load_profile()
+        self.assertTrue(values["color_cycle"])
+        self.assertEqual(values["color"], config.rgb_to_hex(config.hue_degrees_rgb(270)))
+        with patch.object(sys, "argv", ["matrix-lock", "undo"]):
+            self.assertEqual(cli.main(), 0)
+        self.assertFalse(lock.load_profile()["color_cycle"])
+
+    def test_cli_rejects_bad_hue_and_color(self):
+        import matrix_lock as cli
+        for arguments in (["set", "hue", "violet"], ["set", "color", "notacolor"],
+                          ["set", "fps-cap", "NaNistan"]):
+            with patch.object(sys, "argv", ["matrix-lock", *arguments]):
+                with self.assertRaises(SystemExit) as caught:
+                    cli.main()
+                self.assertNotEqual(caught.exception.code, 0)
+
+
+class NamedLockPresetTests(Isolated):
+    def exact_profile(self):
+        values = lock.validate({})
+        values = lock.set_color(values, "#8B5CF6")
+        values["speed"] = 88
+        values["white_head_rate"] = 40
+        return lock.validate(values)
+
+    def test_save_show_and_exact_hue_roundtrip(self):
+        values = self.exact_profile()
+        canonical = lock.save_lock_preset("Neon Purple", values)
+        self.assertEqual(canonical, "neon_purple")
+        entry = lock.load_lock_presets()["neon_purple"]
+        self.assertEqual(entry["display_name"], "Neon Purple")
+        self.assertEqual(entry["values"]["color"], "#8b5cf6")  # exact hex kept
+        self.assertEqual(entry["values"]["speed"], 88)
+
+    def test_apply_preserves_guard_settings_and_creates_history(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        current, _ = lock.save_profile(lock.validate({"guard_cpu_pause": 92,
+                                                      "resource_guard": False}),
+                                       note="before")
+        applied, canonical = lock.apply_preset(current, "neon purple")
+        self.assertEqual(canonical, "neon_purple")
+        self.assertEqual(applied["color"], "#8b5cf6")
+        # Visual preset must never touch protection settings.
+        self.assertFalse(applied["resource_guard"])
+        self.assertEqual(applied["guard_cpu_pause"], 92)
+        # Saving the applied values yields a history revision undo can use:
+        # the pre-apply (green) appearance stays restorable.
+        lock.save_profile(applied, note="matrix-lock preset apply neon_purple")
+        revisions = lock.history_entries()
+        self.assertGreaterEqual(len(revisions), 2)
+        colors = [entry["color"] for _, entry in revisions]
+        self.assertIn("green", colors)
+        self.assertIn("#8b5cf6", colors)
+
+    def test_preset_files_do_not_contain_guard_keys(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        text = (self.root / "lock-presets/neon_purple.toml").read_text(encoding="utf-8")
+        self.assertNotIn("guard_", text)
+        self.assertNotIn("resource_guard", text)
+
+    def test_duplicate_requires_force(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        with self.assertRaisesRegex(lock.ConfigError, "already exists"):
+            lock.save_lock_preset("neon-purple", self.exact_profile())
+        lock.save_lock_preset("Neon Purple", self.exact_profile(), force=True)
+
+    def test_builtins_are_read_only(self):
+        for operation in (
+            lambda: lock.save_lock_preset("cinematic", self.exact_profile(), force=True),
+            lambda: lock.delete_lock_preset("ambient"),
+            lambda: lock.rename_lock_preset("cyber", "mine"),
+            lambda: lock.rename_lock_preset("mine", "dense"),
+        ):
+            with self.assertRaisesRegex(lock.ConfigError, "built-in"):
+                operation()
+
+    def test_rename_and_delete(self):
+        lock.save_lock_preset("Neon Purple", self.exact_profile())
+        canonical = lock.rename_lock_preset("Neon Purple", "Violet")
+        self.assertEqual(canonical, "violet")
+        presets = lock.load_lock_presets()
+        self.assertNotIn("neon_purple", presets)
+        self.assertEqual(presets["violet"]["display_name"], "Violet")
+        self.assertEqual(presets["violet"]["values"]["color"], "#8b5cf6")
+        with self.assertRaisesRegex(lock.ConfigError, "does not exist"):
+            lock.rename_lock_preset("Neon Purple", "Other")
+        lock.save_lock_preset("Other", self.exact_profile())
+        with self.assertRaisesRegex(lock.ConfigError, "already exists"):
+            lock.rename_lock_preset("Violet", "Other")
+        lock.delete_lock_preset("Violet")
+        self.assertNotIn("violet", lock.load_lock_presets())
+        with self.assertRaisesRegex(lock.ConfigError, "does not exist"):
+            lock.delete_lock_preset("Violet")
+
+    def test_presets_persist_independently_of_history_pruning(self):
+        lock.save_lock_preset("Keeper", self.exact_profile())
+        values = lock.validate({})
+        for index in range(lock.HISTORY_LIMIT + 4):
+            values["speed"] = 50 + index
+            values, _ = lock.save_profile(values, note=f"rev {index}")
+        self.assertLessEqual(len(lock.history_entries()), lock.HISTORY_LIMIT)
+        self.assertIn("keeper", lock.load_lock_presets())
+
+    def test_unsafe_names_rejected(self):
+        for bad in ("../escape", "a/b", ".", ""):
+            with self.assertRaises(lock.ConfigError):
+                lock.save_lock_preset(bad, self.exact_profile())
+
+
+class CycleExclusionProfileTests(Isolated):
+    EXCLUSION = {"start": 0.2, "end": 0.45, "blend": 1.5, "enabled": True}
+
+    def test_validate_normalizes_and_assigns_ids(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        self.assertEqual(values["cycle_exclusions"][0]["id"], 1)
+        with self.assertRaises(lock.ConfigError):
+            lock.validate({"cycle_exclusions": [{"start": 0.0, "end": 0.97}]})
+
+    def test_validate_accepts_compact_string(self):
+        values = lock.validate({"cycle_exclusions": "0.2:0.45:1.5"})
+        self.assertAlmostEqual(values["cycle_exclusions"][0]["end"], 0.45)
+
+    def test_export_contains_merged_enabled_gaps(self):
+        values = lock.validate({"cycle_exclusions": [
+            dict(self.EXCLUSION),
+            {"start": 0.6, "end": 0.7, "blend": 1.0, "enabled": False}]})
+        exported = lock.export_assignments(values, epoch=123.0)
+        self.assertEqual(exported["CycleExclusions"], "0.200000:0.450000:1.500")
+        values["cycle_exclusions"] = []
+        self.assertEqual(lock.export_assignments(values, epoch=1.0)["CycleExclusions"], "")
+
+    def test_profile_round_trip_persists_exclusions(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        lock.save_profile(values, note="with exclusions")
+        loaded = lock.load_profile()
+        self.assertEqual(loaded["cycle_exclusions"], values["cycle_exclusions"])
+
+    def test_named_presets_carry_exclusions_but_never_guard(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        lock.save_lock_preset("Skip Blue", values)
+        current = lock.validate({"guard_cpu_pause": 90})
+        applied, _ = lock.apply_preset(current, "Skip Blue")
+        self.assertAlmostEqual(applied["cycle_exclusions"][0]["start"], 0.2)
+        self.assertEqual(applied["guard_cpu_pause"], 90)
+        text = (self.root / "lock-presets/skip_blue.toml").read_text(encoding="utf-8")
+        self.assertIn("cycle_exclusions", text)
+        self.assertNotIn("guard_", text)
+
+    def test_quality_presets_do_not_touch_exclusions(self):
+        values = lock.validate({"cycle_exclusions": [dict(self.EXCLUSION)]})
+        for name in ("balanced", "high", "battery"):
+            bundled, _ = lock.apply_quality(dict(values), name)
+            self.assertEqual(bundled["cycle_exclusions"], values["cycle_exclusions"])
+
+    def test_preview_arguments_round_trip_exclusions(self):
+        values = lock.validate({"cycle_exclusions": [
+            dict(self.EXCLUSION),
+            {"start": 0.6, "end": 0.7, "blend": 1.0, "enabled": False}]})
+        arguments = lock.renderer_preview_arguments(values)
+        self.assertIn("--cycle-exclusions", arguments)
+        compact = arguments[arguments.index("--cycle-exclusions") + 1]
+        from matrix_config import parse_cycle_exclusions
+        parsed = parse_cycle_exclusions(compact)
+        self.assertEqual(len(parsed), 2)
+        self.assertFalse(parsed[1]["enabled"])
+
+    def test_from_terminal_values_imports_exclusions(self):
+        values = lock.from_terminal_values(
+            {"color": "green", "cycle_exclusions": [dict(self.EXCLUSION)]})
+        self.assertAlmostEqual(values["cycle_exclusions"][0]["blend"], 1.5)
+
+
+if __name__ == "__main__":
+    unittest.main()

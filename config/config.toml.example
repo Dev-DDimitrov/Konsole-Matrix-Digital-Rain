@@ -40,3 +40,15 @@ binding = "Ctrl+Y"
 
 [settings_lock]
 enabled = false
+
+[resource_guard]
+# Freeze Matrix animation while the whole system is overloaded; resume when
+# it recovers. CPU% comes from /proc/stat counter deltas, memory% from
+# MemAvailable, with memory PSI (pressure stall) as an extra trigger.
+enabled = true
+cpu_pause = 85      # % aggregate CPU that triggers protection
+mem_pause = 85      # % memory in use that triggers protection
+cpu_resume = 70     # both metrics must fall to/below resume levels...
+mem_resume = 70
+pause_secs = 8      # ...after this much sustained overload
+resume_secs = 10    # ...for this long before the animation resumes

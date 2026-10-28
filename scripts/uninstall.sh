@@ -12,6 +12,7 @@ KONSOLE_TARGET="$DATA_HOME/konsole"
 PROJECT_DATA_TARGET="$DATA_HOME/konsole-matrix-digital-rain"
 CONFIG_TARGET="$CONFIG_HOME/konsole-matrix-digital-rain"
 SYSTEMD_TARGET="$CONFIG_HOME/systemd/user"
+WALLPAPER_TARGET="$DATA_HOME/plasma/wallpapers/io.github.devddimitrov.matrixrain"
 MANIFEST="$PROJECT_DATA_TARGET/install-manifest.tsv"
 DRY_RUN=0
 PURGE=0
@@ -45,7 +46,7 @@ fi
 
 path_is_allowed() {
     case "$1" in
-        "$BIN_TARGET"/*|"$KONSOLE_TARGET"/*|"$SYSTEMD_TARGET"/*) return 0 ;;
+        "$BIN_TARGET"/*|"$KONSOLE_TARGET"/*|"$SYSTEMD_TARGET"/*|"$WALLPAPER_TARGET"/*) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -86,7 +87,10 @@ done < "$MANIFEST"
 if (( ! DRY_RUN )); then
     rm -f -- "$MANIFEST"
     rmdir -- "$PROJECT_DATA_TARGET" 2>/dev/null || true
-    for directory in "$BIN_TARGET" "$KONSOLE_TARGET" "$SYSTEMD_TARGET"; do
+    for directory in "$WALLPAPER_TARGET/contents/ui" "$WALLPAPER_TARGET/contents/config" \
+        "$WALLPAPER_TARGET/contents/shaders" \
+        "$WALLPAPER_TARGET/contents" "$WALLPAPER_TARGET" \
+        "$BIN_TARGET" "$KONSOLE_TARGET" "$SYSTEMD_TARGET"; do
         rmdir -- "$directory" 2>/dev/null || true
     done
     if command -v systemctl >/dev/null 2>&1; then
